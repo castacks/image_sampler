@@ -26,6 +26,7 @@ class PlanarAsBase(object):
         camera_model (camera_model.CameraModel): This is used if dsc is None. 
         R_raw_fisheye (FTensor): The orientation of the fisheye camera.
         '''
+        # TODO: Fixe the naming of R_raw_fisheye. Target can be any kind of image.
         super(PlanarAsBase, self).__init__()
         
         self.fov = fov # Degree.
