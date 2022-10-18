@@ -8,6 +8,7 @@ import cupy
 import cv2
 import math
 import numpy as np
+import time
 import torch
 import torch.nn.functional as F
 
@@ -31,7 +32,8 @@ class SixPlanarNumba(PlanarAsBase):
         super().__init__(fov, camera_model=camera_model, R_raw_fisheye=R_raw_fisheye)
         
         # The 3D coordinates of the hyper-surface.
-        xyz, valid_mask = self.get_xyz()
+        # xyz, valid_mask = self.get_xyz(back_shift_pixel=True)
+        xyz, valid_mask = self.get_xyz(back_shift_pixel=False)
         self.xyz = xyz.cpu().numpy()
         self.valid_mask = valid_mask.cpu().numpy().astype(np.bool)
         
@@ -67,6 +69,7 @@ shape = {self.shape}
 
         # Get the original shape of the input images.
         img_shape = np.array(imgs[FRONT].shape[:2], dtype=np.float32).reshape((2, 1))
+        H, W = img_shape
         
         # Make the image cross.
         img_cross = make_image_cross_npy( imgs )
@@ -77,6 +80,10 @@ shape = {self.shape}
             m, offsets = sample_coor_cuda( self.xyz, self.valid_mask )
         else:
             m, offsets = sample_coor(self.xyz, self.valid_mask)
+
+        # We need to properly scale the dimensionless values in m to use cv2.remap().
+        m[0, :] = W / ( W - 0.5 ) * ( m[0, :] - 0.5 ) + 0.5
+        m[1, :] = H / ( H - 0.5 ) * ( m[1, :] - 0.5 ) + 0.5
 
         m = m * ( img_shape - 1 ) + offsets * img_shape
 
@@ -102,7 +109,7 @@ shape = {self.shape}
         img_shape = np.array(img_shape, dtype=np.float32).reshape((2, 1))
 
         # Get the sample locations.
-        if ( self.flag_cuda ):
+        if ( self.device != 'cpu' ):
             m, offsets = sample_coor_cuda( self.xyz, self.valid_mask )
         else:
             m, offsets = sample_coor(self.xyz, self.valid_mask)
@@ -111,10 +118,14 @@ shape = {self.shape}
 
         mx = m[0, :].reshape(self.shape)
         my = m[1, :].reshape(self.shape)
-        valid_mask = valid_mask.reshape(self.shape)
+        valid_mask = self.valid_mask.reshape(self.shape)
 
-        d = self.compute_8_way_sample_msr_diff( np.stack( (mx, my), axis=-1 ), valid_mask )
-        return d, valid_mask
+        # compute_8_way_sample_msr_diff only supports torch now.
+        s = torch.from_numpy(np.stack( (mx, my), axis=-1 )).unsqueeze(0).to(self.device)
+        vm = torch.from_numpy(valid_mask).unsqueeze(0).unsqueeze(0).to(self.device)
+        d = self.compute_8_way_sample_msr_diff( s, vm )
+        
+        return torch_2_output(d, flag_uint8=False), valid_mask
 
 @register(SAMPLERS)
 class SixPlanarTorch(PlanarAsBase):
@@ -151,7 +162,7 @@ class SixPlanarTorch(PlanarAsBase):
         self.xyz_T = self.xyz.permute((1,0)).contiguous()
         
         self.cuda_block_size = 256
-        self.cuda_grid_size = int( math.ceil( self.xyz_T.shape[0] / self.cuda_block_size ) )
+        self.cuda_grid_size = int( math.ceil( self.xyz_T.shape[0]*self.xyz_T.shape[1] / self.cuda_block_size ) )
 
     @PlanarAsBase.device.setter
     def device(self, device):
@@ -188,6 +199,7 @@ shape = {self.shape}
 
         # Get the sample locations.
         if ( self.device != 'cpu' ):
+            start_time = time.time()
             # Allocate m and offsets.
             m = torch.zeros( (self.xyz_T.shape[0], 2), dtype=torch.float32, device=self.device )
             offsets = m.detach().clone()
@@ -207,11 +219,15 @@ shape = {self.shape}
             
             # Handle the valid mask.
             invalid_mask = torch.logical_not(self.valid_mask)
-            m[:, invalid_mask] = -1 # NOTE: This might be a bug.
+            m[invalid_mask, :] = -1 # NOTE: This might be a bug.
+            d = cupy.cuda.Device()
+            d.synchronize()
+            print(f'Time for CUDA: {time.time() - start_time}s. ')
         else:
             m, offsets = sample_coor(self.xyz.cpu().numpy(), self.valid_mask.cpu().numpy().astype(np.bool))
 
-        m = (m + offsets) / self.image_cross_layout_device[::-1] * 2 - 1
+        m[:, 0] = ( m[:, 0] + offsets[:, 0]) / self.image_cross_layout_device[1] * 2 - 1
+        m[:, 1] = ( m[:, 1] + offsets[:, 1]) / self.image_cross_layout_device[0] * 2 - 1
         m = m.view( ( 1, *self.shape, 2 ) )
         
         N = img_cross.shape[0]
@@ -224,9 +240,18 @@ shape = {self.shape}
         # Apply gray color on invalid coordinates.
         valid_mask = self.valid_mask.view(self.shape)
         invalid_mask = torch.logical_not(valid_mask)
+        
+        if flag_uint8:
+            invalid_pixel_value /= 255.0
+        
         sampled[..., invalid_mask] = invalid_pixel_value
 
-        return torch_2_output(sampled, flag_uint8), valid_mask.cpu().numpy().astype(np.bool)
+        start_time = time.time()
+        output_sampled = torch_2_output(sampled, flag_uint8)
+        output_mask = valid_mask.cpu().numpy().astype(np.bool)
+        print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
+        
+        return output_sampled, output_mask
 
     def compute_mean_samping_diff(self, img_shape):
         # Get the sample locations.
@@ -250,19 +275,19 @@ shape = {self.shape}
             
             # Handle the valid mask.
             invalid_mask = torch.logical_not(self.valid_mask)
-            m[:, invalid_mask] = -1 # NOTE: This might be a bug.
+            m[invalid_mask, :] = -1 # NOTE: This might be a bug.
         else:
             m, offsets = sample_coor(self.xyz.cpu().numpy(), self.valid_mask.cpu().numpy().astype(np.bool))
 
-        m = (m + offsets) / self.image_cross_layout_device[::-1]
+        m = m + offsets
         m = m.view( ( 1, *self.shape, 2 ) )
         
         # Convert back to pixel coordinates.
-        m[..., 0] *= img_shape[1] * self.image_cross_layout[1]
-        m[..., 1] *= img_shape[0] * self.image_cross_layout[0]
+        m[..., 0] *= img_shape[1]
+        m[..., 1] *= img_shape[0]
         
         valid_mask = self.valid_mask.view(self.shape)
 
-        d = self.compute_8_way_sample_msr_diff( m, valid_mask )
+        d = self.compute_8_way_sample_msr_diff( m, valid_mask.unsqueeze(0).unsqueeze(0) )
         
-        return torch_2_output(d), valid_mask.cpu().numpy().astype(np.bool)
+        return torch_2_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(np.bool)

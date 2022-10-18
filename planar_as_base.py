@@ -105,7 +105,7 @@ class PlanarAsBase(object):
         else:
             return xx, yy
 
-    def get_xyz(self):
+    def get_xyz(self, back_shift_pixel=False):
         '''
         Compute the ray vectors for all valid pixels in the fisheye image.
         A ray vector is represented as a unit vector.
@@ -117,6 +117,11 @@ class PlanarAsBase(object):
         '''
         # The pixel coordinates.
         xx, yy = self.mesh_grid_pixels(self.shape, flag_flatten=True) # 1D.
+        
+        if back_shift_pixel:
+            xx -= 0.5
+            yy -= 0.5
+        
         pixel_coor = torch.stack( (xx, yy), dim=0 ) # 2xN
 
         xyz, valid_mask = \
@@ -146,7 +151,7 @@ class PlanarAsBase(object):
         
         assert s.ndim == 4, f's.ndim = {s.ndim}'
         
-        s = s.permute((0, 3, 1, 2))
+        s = s.permute((0, 3, 1, 2)).contiguous()
         N, _, H, W = s.shape
         
         # Augment the s array by 1s.
@@ -171,8 +176,8 @@ class PlanarAsBase(object):
         ]
         
         shifts = torch.Tensor(shifts).to(dtype=torch.float32, device=self.device)
-        shifts[:, 0] /= W
-        shifts[:, 1] /= H
+        shifts[:, 0] = shifts[:, 0] / W * 2
+        shifts[:, 1] = shifts[:, 1] / H * 2
         
         acc_d = torch.zeros((N, 1, H, W), dtype=torch.float32, device=self.device)
 

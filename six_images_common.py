@@ -119,20 +119,24 @@ def make_image_cross_torch(imgs, device):
         canvas[i, :,   H:2*H, 3*W:4*W] = torch_dict[BACK]   # Top.
 
         # Padding.
+        # Revrse indices since PyTorch does not support negative step in slicing.
+        rev_idx_h = torch.arange( H-1, -1, -1, dtype=torch.long, device=device )
+        rev_idx_w = torch.arange( W-1, -1, -1, dtype=torch.long, device=device )
+        
         # Right.
-        canvas[ i, :, H-1, 2*W:3*W ] = torch_dict[TOP][    :, ::-1, -1 ]
-        canvas[ i, :, 2*H, 2*W:3*W ] = torch_dict[BOTTOM][ :,    :, -1 ]
+        canvas[ i, :, H-1, 2*W:3*W ] = torch_dict[TOP][    :, rev_idx_h, -1 ]
+        canvas[ i, :, 2*H, 2*W:3*W ] = torch_dict[BOTTOM][ :,         :, -1 ]
         # Bottom.
-        canvas[ i, :, 2*H:3*H, 2*W ] = torch_dict[RIGHT][ :, -1,    : ]
-        canvas[ i, :, 2*H:3*H, W-1 ] = torch_dict[LEFT][  :, -1, ::-1 ]
+        canvas[ i, :, 2*H:3*H, 2*W ] = torch_dict[RIGHT][ :, -1,         : ]
+        canvas[ i, :, 2*H:3*H, W-1 ] = torch_dict[LEFT][  :, -1, rev_idx_w ]
         # Left.
-        canvas[ i, :, H-1, 0:W ] = torch_dict[TOP][    :,    :, 0 ]
-        canvas[ i, :, 2*H, 0:W ] = torch_dict[BOTTOM][ :, ::-1, 0 ]
+        canvas[ i, :, H-1, 0:W ] = torch_dict[TOP][    :,         :, 0 ]
+        canvas[ i, :, 2*H, 0:W ] = torch_dict[BOTTOM][ :, rev_idx_h, 0 ]
         # Top.
-        canvas[ i, :, 0:H, W-1 ] = torch_dict[LEFT][  :, 0,    : ]
-        canvas[ i, :, 0:H, 2*W ] = torch_dict[RIGHT][ :, 0, ::-1 ]
+        canvas[ i, :, 0:H, W-1 ] = torch_dict[LEFT][  :, 0,         : ]
+        canvas[ i, :, 0:H, 2*W ] = torch_dict[RIGHT][ :, 0, rev_idx_w ]
         # Back.
-        canvas[ i, H-1, 3*W:4*W ] = torch_dict[TOP][    :,  0, ::-1 ]
-        canvas[ i, 2*H, 3*W:4*W ] = torch_dict[BOTTOM][ :, -1, ::-1 ]
+        canvas[ i, :, H-1, 3*W:4*W ] = torch_dict[TOP][    :,  0, rev_idx_w ]
+        canvas[ i, :, 2*H, 3*W:4*W ] = torch_dict[BOTTOM][ :, -1, rev_idx_w ]
 
     return canvas, flag_uint8

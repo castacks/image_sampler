@@ -1,4 +1,6 @@
 
+#include <math_constants.h>
+
 extern "C" __global__ void cu_sample_coor(
     int n_points,
     const float3* xyz, const float2* offsets, 
@@ -17,7 +19,7 @@ extern "C" __global__ void cu_sample_coor(
     const float dls_half = dls / 2.f;
 
     // Loop.
-    for ( int i = x_idx; i < n_points; i++ ) {
+    for ( int i = x_idx; i < n_points; i += x_stride ) {
         const float x = xyz[i].x;
         const float y = xyz[i].y;
         const float z = xyz[i].z;
