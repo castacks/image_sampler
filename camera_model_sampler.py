@@ -1,4 +1,5 @@
 
+import copy
 import numpy as np
 
 import torch
@@ -36,9 +37,13 @@ class CameraModelRotation(PlanarAsBase):
         # assert not camera_model_target.out_to_numpy, f'Currently only supports pytorch version of target camera model. '
 
         super().__init__(
-            camera_model_target.fov_degree, camera_model=camera_model_target, R_raw_fisheye=R_raw_fisheye)
+            camera_model_target.fov_degree, 
+            camera_model=camera_model_target, 
+            R_raw_fisheye=R_raw_fisheye,
+            cached_raw_shape=(1, 1) )
 
-        self.camera_model_raw = camera_model_raw
+        self.camera_model_raw = copy.deepcopy(camera_model_raw)
+        self.camera_model_raw.device = self.device
 
         # Get the rays in xyz coordinates in the target camera image frame (CIF).
         # The rays has been already transformed to the target image frame.
@@ -83,26 +88,26 @@ class CameraModelRotation(PlanarAsBase):
         self.check_input_shape(img.shape[-2:])
 
         # Sample.
-        sampled = F.grid_sample( 
-                                img, 
-                                self.grid, 
-                                mode=INTER_MAP[interpolation], 
-                                align_corners=self.align_corners )
+        sampled = F.grid_sample( img, 
+                                 self.grid, 
+                                 mode=INTER_MAP[interpolation], 
+                                 align_corners=self.align_corners,
+                                 padding_mode='reflection' )
 
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = 0.0
 
-        return torch_2_output(sampled, flag_uint8), self.invalid_mask_reshaped.cpu().numpy().astype(np.bool)
+        return torch_2_output(sampled, flag_uint8), self.invalid_mask_reshaped.cpu().numpy().astype(bool)
 
-    def compute_mean_samping_diff(self, img_shape):
-        self.check_input_shape(img_shape)
+    def compute_mean_samping_diff(self, support_shape):
+        self.check_input_shape(support_shape)
 
         valid_mask = torch.logical_not( self.invalid_mask )
         
         # Scale the grid back to the image pixel space.
         grid = self.grid.detach().clone()
-        grid[..., 0] = ( grid[..., 0] + 1 ) / 2 * img_shape[1]
-        grid[..., 1] = ( grid[..., 1] + 1 ) / 2 * img_shape[0]
+        grid[..., 0] = ( grid[..., 0] + 1 ) / 2 * support_shape[1]
+        grid[..., 1] = ( grid[..., 1] + 1 ) / 2 * support_shape[0]
 
         d = self.compute_8_way_sample_msr_diff( grid, valid_mask.unsqueeze(0).unsqueeze(0) )
-        return torch_2_output(d), valid_mask.cpu().numpy().astype(np.bool)
+        return torch_2_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(bool)

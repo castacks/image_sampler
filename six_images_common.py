@@ -139,4 +139,4 @@ def make_image_cross_torch(imgs, device):
         canvas[ i, :, H-1, 3*W:4*W ] = torch_dict[TOP][    :,  0, rev_idx_w ]
         canvas[ i, :, 2*H, 3*W:4*W ] = torch_dict[BOTTOM][ :, -1, rev_idx_w ]
 
-    return canvas, flag_uint8
+    return canvas, flag_uint8, (H, W)

@@ -4,6 +4,7 @@
 # Date:
 # 2021-05-06
 
+import copy
 import cv2
 import numpy as np
 import torch
@@ -14,10 +15,10 @@ from ..mvs_utils.ftensor import FTensor, f_eye
 
 IDENTITY_ROT = f_eye(3, f0='raw', f1='fisheye', rotation=True, dtype=torch.float32)
 
-# INTER_MAP = {
-#     'nearest': cv2.INTER_NEAREST,
-#     'linear': cv2.INTER_LINEAR,
-# }
+INTER_MAP_OCV = {
+    'linear': cv2.INTER_LINEAR,
+    'nearest': cv2.INTER_NEAREST
+}
 
 INTER_MAP = {
     'nearest': 'nearest',
@@ -43,21 +44,22 @@ def torch_2_output(t, flag_uint8=True):
         return torch_2_ocv(t, scale=False, dtype=np.float32)
 
 class PlanarAsBase(object):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT):
+    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(1024, 2048)):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model (camera_model.CameraModel): This is used if dsc is None. 
         R_raw_fisheye (FTensor): The orientation of the fisheye camera.
+        cached_raw_shape (two-element): The tentative shape of the support raw image. Use some positive values if not sure.
         '''
         # TODO: Fixe the naming of R_raw_fisheye. Target can be any kind of image.
         super(PlanarAsBase, self).__init__()
         
         self.fov = fov # Degree.
 
-        self._device = 'cpu'
+        self._device = 'cuda'
 
-        self.camera_model = camera_model
+        self.camera_model = copy.deepcopy(camera_model)
         self.camera_model.device = self._device
         self.shape = self.camera_model.shape
 
@@ -66,7 +68,12 @@ class PlanarAsBase(object):
         # This rotation matrix is the orientation of the fisheye camera w.r.t
         # the frame where we take the raw images. And the orientation is measured
         # in the raw image frame.
-        self.R_raw_fisheye = R_raw_fisheye
+        self.R_raw_fisheye = R_raw_fisheye.to(device=self.device)
+        
+        self.cached_raw_shape = cached_raw_shape
+
+    def is_same_as_cached_shape(self, new_shape):
+        return new_shape[0] == self.cached_raw_shape[0] and new_shape[1] == self.cached_raw_shape[1]
 
     @property
     def align_corners(self):
@@ -136,6 +143,35 @@ class PlanarAsBase(object):
         xyz = self.R_raw_fisheye @ xyz
 
         return xyz, valid_mask
+    
+    def convert_dimensionless_torch_grid_2_ocv_remap_format(self, torch_grid: torch.Tensor, raw_shape: list):
+        '''
+        torch_grid: H x W x 2.
+        raw_shape: The shape (H, W) of the suppport raw image.
+        '''
+        
+        if torch_grid.ndim == 4:
+            if torch_grid.shape[0] != 1:
+                raise Exception(f'Only supports non-bacthed grid. Got torch_grid.shape = {torch_grid.shape}. ')
+            
+            torch_grid = torch_grid.squeeze(0)
+        
+        H, W = raw_shape
+        
+        s = torch_grid.detach().cpu().numpy().astype(np.float32)
+        s = ( s + 1 ) / 2
+        sx = s[..., 0] # Using slicing instead of np.split() to avoid doing squeezing.
+        sy = s[..., 1]
+        
+        # Scale the dimensionless coordinates.
+        sx = W / ( W - 0.5 ) * ( sx - 0.5 ) + 0.5
+        sy = H / ( H - 0.5 ) * ( sy - 0.5 ) + 0.5
+        
+        # Convert to dimensional version.
+        sx *= W - 1
+        sy *= H - 1
+        
+        return sx, sy
     
     def compute_8_way_sample_msr_diff(self, s, valid_mask):
         '''
