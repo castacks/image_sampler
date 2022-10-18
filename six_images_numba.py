@@ -154,7 +154,7 @@ def sample_coor_cuda(
     d_offsets     = cuda.to_device(offsets)
 
     cuda.synchronize()
-    k_sample_coor[[1024,1,1],[256,1,1]]( d_output, d_out_offsets, d_xyz, d_offsets )
+    k_sample_coor[(1024,1,1),(256,1,1)]( d_output, d_out_offsets, d_xyz, d_offsets )
     cuda.synchronize()
 
     output = d_output.copy_to_host()
