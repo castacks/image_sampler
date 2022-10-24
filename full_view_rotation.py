@@ -110,6 +110,8 @@ class FullViewRotation(PlanarAsBase):
             return outputs_sampled, outputs_mask
 
     def execute_using_torch(self, img, interpolation='linear'):
+        global INTER_MAP
+
         # Convert to torch.Tensor.
         t, flag_uint8 = input_2_torch(img, self.device)
 
