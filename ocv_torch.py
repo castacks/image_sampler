@@ -58,12 +58,16 @@ def torch_2_ocv(img, scale=True, dtype=None):
         img = img.permute((0, 2, 3, 1))
         
         if img.shape[0] == 1:
-            return img.squeeze(0).cpu().numpy().astype(dtype)
+            img = img.squeeze(0).squeeze(-1) if img.shape[-1] == 1 else img.squeeze(0)
+            return img.cpu().numpy().astype(dtype)
         else:
+            img = img.squeeze(-1) if img.shape[-1] == 1 else img
             array = img.cpu().numpy().astype(dtype)
             return [ np.squeeze(a, axis=0) for a in np.split( array, img.shape[0], axis=0 ) ]
     else:
-        return img.permute((1, 2, 0)).cpu().numpy().astype(dtype)
+        img = img.permute((1, 2, 0))
+        img = img.squeeze(-1) if img.shape[-1] == 1 else img
+        return img.cpu().numpy().astype(dtype)
         
 if __name__ == '__main__':
     # Test ocv_2_torch with uint8 type.
