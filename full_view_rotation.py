@@ -1,15 +1,15 @@
 
 import cv2
 import numpy as np
-import os
-# from scipy.spatial.transform import Rotation as R
+import torch
+import torch.nn.functional as F
 
-from .planar_as_base import PlanarAsBase
+from .planar_as_base import (INTER_MAP_OCV, INTER_MAP, input_2_torch, torch_2_output, PlanarAsBase)
 from .register import (SAMPLERS, register)
 
 @register(SAMPLERS)
 class FullViewRotation(PlanarAsBase):
-    def __init__(self, camera_model, R_raw_fisheye):
+    def __init__(self, camera_model, R_raw_fisheye, cached_raw_shape=(1024, 2048)):
         '''
         Note: Full view is the Unreal Engine's setting. It is NOT the same as the conventional 
         equirectangular projection. In Unreal Engine, the forward direction (that is where the 
@@ -28,104 +28,138 @@ class FullViewRotation(PlanarAsBase):
         R_raw_fisheye (array): 3x3 rotation matrix. 
         camera_model (camera_model.CameraModel): The camera model. '''
         super().__init__(
-            camera_model.fov_degree, camera_model=camera_model, R_raw_fisheye=R_raw_fisheye)
-
+            camera_model.fov_degree, 
+            camera_model=camera_model, 
+            R_raw_fisheye=R_raw_fisheye,
+            cached_raw_shape=cached_raw_shape)
+        # import ipdb; ipdb.set_trace()
         # Get the longitude and latitude coordinates.
         self.lon_lat, invalid_mask = self.get_lon_lat()
 
-        # Reshape out_of_fov.
-        self.invalid_mask = invalid_mask.reshape(self.shape)
+        # Reshape.
+        self.lon_lat = self.lon_lat.permute((1, 0)).view((*self.shape, 2))
+        self.invalid_mask = invalid_mask.view(self.shape)
+        
+        # The grid.
+        self.grid = torch.zeros( (1, *self.shape, 2), dtype=torch.float32, device=self.device )
+        self.grid[0, :, :, 0] = self.lon_lat[:, :, 0] / ( 2 * np.pi ) * 2 - 1
+        self.grid[0, :, :, 1] = self.lon_lat[:, :, 1] / np.pi * 2 - 1
+        
+        # Backward compatibility with OpenCV remap().
+        self.use_ocv = False
+        self.ocv_remaps = self.convert_dimensionless_torch_grid_2_ocv_remap_format(self.grid.squeeze(0), self.cached_raw_shape)
+        self.ocv_invalid_mask = self.invalid_mask.detach().cpu().numpy().astype(bool)
+
+    @PlanarAsBase.device.setter
+    def device(self, device):
+        PlanarAsBase.device.fset(self, device)
+        
+        self.lon_lat = self.lon_lat.to(device=device)
+        self.invalid_mask = self.invalid_mask.to(device=device)
+        self.grid = self.grid.to(device=device)
 
     def get_lon_lat(self):
         # Get the rays in xyz coordinates in the fisheye camera image frame (CIF).
         # The valid mask is saved in self.temp_valid_mask for compatibility concern.
         xyz, valid_mask = self.get_xyz()
 
-        # # Already transformed.
-        # # Transform the rays from the fisheye CIF to the CPF.
-        # xyz = self.R_raw_fisheye @ xyz
-
         # The distance projected into the xz plane in the panorama frame.
-        d = np.linalg.norm( xyz[[0, 2], :], axis=0 )
+        d = torch.linalg.norm( xyz[[0, 2], :], dim=0, keepdim=True )
 
         # Longitude and latitude.
-        lon_lat = np.zeros( (2, xyz.shape[1]), dtype=np.float32 )
-        lon_lat[0, :] = np.pi - np.arctan2( xyz[2, :], xyz[0, :] ) # Longitude.
-        lon_lat[1, :] = np.pi - np.arctan2( d, xyz[1, :] )         # Latitude.
+        lon_lat = torch.zeros( (2, xyz.shape[1]), dtype=torch.float32, device=self.device )
+        # lon_lat[0, :] = np.pi - np.arctan2( xyz[2, :], xyz[0, :] ) # Longitude.
+        # lon_lat[1, :] = np.pi - np.arctan2( d, xyz[1, :] )         # Latitude.
+        lon_lat[0, :] = np.pi - torch.atan2( xyz[2, :], xyz[0, :] ) # Longitude.
+        lon_lat[1, :] = np.pi - torch.atan2( d, xyz[1, :] )         # Latitude.
 
-        return lon_lat, np.logical_not( valid_mask )
+        return lon_lat, torch.logical_not( valid_mask )
 
-    def pad(self, img):
-        H, W = img.shape[:2]
-        if ( img.ndim == 3 ):
-            padded = np.zeros((H+1, W+1, img.shape[2]), dtype=img.dtype)
+    def execute_using_ocv(self, img, interpolation='linear'):
+        global INTER_MAP_OCV
+        
+        flag_input_is_list = isinstance(img, (list, tuple) )
+        if not flag_input_is_list:
+            img = [img]
+        
+        # Loop.
+        outputs_sampled = []
+        outputs_mask = []
+        for i in img:
+            # Convert the PyTorch grid to OpenCV remap() format.
+            if not self.is_same_as_cached_shape( i.shape[:2] ):
+                self.ocv_remaps = self.convert_dimensionless_torch_grid_2_ocv_remap_format(self.grid.squeeze(0), i.shape[:2])
+                self.cached_raw_shape = i.shape[:2]
+            
+            # Do the remap.
+            sampled = cv2.remap(i, 
+                                self.ocv_remaps[0], 
+                                self.ocv_remaps[1], 
+                                INTER_MAP_OCV[interpolation],
+                                borderMode=cv2.BORDER_WRAP)
+            
+            # Handle the masked values.
+            sampled[self.ocv_invalid_mask, ...] = 0
+            
+            outputs_sampled.append( sampled )
+            outputs_mask.append( np.logical_not(self.ocv_invalid_mask) )
+            
+        if not flag_input_is_list:
+            return outputs_sampled[0], outputs_mask[0]
         else:
-            padded = np.zeros((H+1, W+1), dtype=img.dtype)
+            return outputs_sampled, outputs_mask
 
-        padded[:H, :W, ...] = img
-        padded[ H, :W, ...] = img[0, :, ...]
-        padded[:H,  W, ...] = img[:, 0, ...]
-        padded[-1, -1, ...] = 0.5 * ( padded[-1, -2, ...] + padded[-2, -1, ...] )
-        return padded
+    def execute_using_torch(self, img, interpolation='linear'):
+        global INTER_MAP
 
-    def __call__(self, img, interpolation=cv2.INTER_LINEAR):
+        # Convert to torch.Tensor.
+        t, flag_uint8 = input_2_torch(img, self.device)
+
         # Get the shape of the input image.
-        H, W = img.shape[:2]
+        N, C = t.shape[:2]
 
-        # The following does not make sense to me now. 20220701.
-        # # Pad.
-        # img = self.pad(img)
-        # # Get the sample location.
-        # # sx = ( lon_lat[0, :] / ( 2 * np.pi ) * (W-1) ).reshape(self.shape)
-        # # sy = ( lon_lat[1, :] / np.pi * (H-1) ).reshape(self.shape)
-        # # With padding.
-        # sx = ( self.lon_lat[0, :] / ( 2 * np.pi ) * W ).reshape(self.shape)
-        # sy = ( self.lon_lat[1, :] / np.pi * H ).reshape(self.shape)
-
-        # Get the sample location. 20220701.
-        sx = ( self.lon_lat[0, :] / ( 2 * np.pi ) * ( W - 1 ) ).reshape(self.shape)
-        sy = ( self.lon_lat[1, :] / np.pi * ( H - 1 ) ).reshape(self.shape)
+        # # Get the sample location. 20220701.
+        # sx = ( self.lon_lat[0, :] / ( 2 * np.pi ) * ( W - 1 ) ).reshape(self.shape)
+        # sy = ( self.lon_lat[1, :] / np.pi * ( H - 1 ) ).reshape(self.shape)
+        
+        grid = self.grid.repeat( (N, 1, 1, 1) )
 
         # Sample.
-        sampled = cv2.remap(img, sx, sy, interpolation=interpolation)
+        sampled = F.grid_sample( t, 
+                                 grid, 
+                                 mode=INTER_MAP[interpolation], 
+                                 align_corners=self.align_corners,
+                                 padding_mode='reflection')
 
         # Handle invalid pixels.
-        sampled[self.invalid_mask, ...] = 0.0
+        sampled = sampled.view((N*C, *self.shape))
+        sampled[:, self.invalid_mask] = 0
+        sampled = sampled.view((N, C, *self.shape))
 
-        return sampled, self.invalid_mask
+        return torch_2_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
+    
+    def __call__(self, img, interpolation='linear'):
+        if self.use_ocv:
+            return self.execute_using_ocv( img, interpolation )
+        else:
+            return self.execute_using_torch( img, interpolation )
 
-    def compute_mean_samping_diff(self, img_shape):
-        H, W = img_shape[:2]
+    def compute_mean_samping_diff(self, support_shape):
+        '''
+        support_shape is the shape of the support image.
+        '''
+        H, W = self.shape
 
-        # Get the sample location. 20220701.
-        sx = ( self.lon_lat[0, :] / ( 2 * np.pi ) * ( W - 1 ) ).reshape(self.shape)
-        sy = ( self.lon_lat[1, :] / np.pi * ( H - 1 ) ).reshape(self.shape)
+        # # Get the sample location. 20220701.
+        # sx = ( self.lon_lat[0, :] / ( 2 * np.pi ) * ( W - 1 ) ).reshape(self.shape)
+        # sy = ( self.lon_lat[1, :] / np.pi * ( H - 1 ) ).reshape(self.shape)
 
-        valid_mask = np.logical_not( self.invalid_mask )
+        grid = self.grid.detach().clone()
+        grid[0, :, :, 0] = ( grid[0, :, :, 0] + 1 ) / 2 * support_shape[1]
+        grid[0, :, :, 1] = ( grid[0, :, :, 1] + 1 ) / 2 * support_shape[0]
 
-        d = self.compute_8_way_sample_msr_diff( np.stack( (sx, sy), axis=-1 ), valid_mask )
-        return d, valid_mask
+        valid_mask = torch.logical_not( self.invalid_mask )
 
-def read_image(fn):
-    assert( os.path.isfile(fn) ), \
-        f'{fn} does not exist. '
-
-    return cv2.imread(fn, cv2.IMREAD_UNCHANGED)
-
-def circle_mask(shape, c, r):
-    '''
-    shape (2-element): H, W.
-    c (2-element): center coordinate, (x, y)
-    r (float): the radius.
-    '''
-
-    # Get a meshgrid of pixel coordinates.
-    H, W = shape[:2]
-    x = np.arange(W, dtype=np.float32)
-    y = np.arange(H, dtype=np.float32)
-    xx, yy = np.meshgrid(x, y, indexing='xy')
-
-    # Get the distance to the center.
-    d = np.sqrt( ( xx - c[0] )**2 + ( yy - c[1] )**2 )
-
-    return d <= r
+        d = self.compute_8_way_sample_msr_diff( grid, valid_mask.unsqueeze(0).unsqueeze(0) )
+        
+        return torch_2_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(bool)

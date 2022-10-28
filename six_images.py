@@ -4,278 +4,90 @@
 # Date:
 # 2022-06-17
 
+import cupy
 import cv2
 import math
-from numba import (jit, cuda)
 import numpy as np
+import time
+import torch
+import torch.nn.functional as F
 
 # Local package.
-from .planar_as_base import PlanarAsBase, IDENTITY_ROT, INTER_MAP
+from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP_OCV, INTER_MAP, torch_2_output )
 from .register import (SAMPLERS, register)
 
-# -->       +---------+
-# |  x      |0,W      |0,2W
-# v         |    4    |
-#  y        |   top   |
-# +---------+---------+---------+---------+
-# |H,0      |H,W      |H,2W     |H,3W     |H,4W
-# |    3    |    0    |    1    |    5    |
-# |   left  |  front  |  right  |   back  |
-# +---------+---------+---------+---------+
-#  2H,0     |2H,W     |2H,2W     2H,3W     2H,4W
-#           |    2    |
-#           |  bottom |
-#           +---------+
-#           3H,W     3H,2W
-
-FRONT  = 'front'
-BACK   = 'back'
-LEFT   = 'left'
-RIGHT  = 'right'
-TOP    = 'top'
-BOTTOM = 'bottom'
-
-OFFSETS = offsets=np.array( 
-            [ [1, 2, 1, 0, 1, 3],
-              [1, 1, 2, 1, 0, 1] ], dtype=np.int32)
-
-@jit(nopython=True)
-def sample_coor(xyz, 
-    valid_mask,
-    offsets=OFFSETS):
-    output = np.zeros( ( 2, xyz.shape[1] ), dtype=np.float32 )
-    out_offsets = np.zeros_like(output)
-
-    one_fourth_pi   = np.pi / 4
-    half_pi         = np.pi / 2
-    three_fourth_pi = one_fourth_pi + half_pi
-    
-    for i in range(xyz.shape[1]):
-        # already rotated to the raw frame, z-forward, x-right, y-downwards.
-        x = xyz[0, i]
-        y = xyz[1, i]
-        z = xyz[2, i]
-
-        a_y     = math.atan2(x, y) # Angle w.r.t. y+ axis projected to the x-y plane.
-        a_z     = math.atan2(z, y) # Angle w.r.t. y+ axis projected to the y-z plane.
-        azimuth = math.atan2(z, x) # Angle w.r.t. x+ axis projected to the z-x plane.
-
-        if ( -one_fourth_pi < a_y and a_y < one_fourth_pi and \
-             -one_fourth_pi < a_z and a_z < one_fourth_pi ):
-            # Bottom.
-            output[0, i] = min( max( ( 1 + x/y ) / 2, 0 ), 1 )
-            output[1, i] = min( max( ( 1 - z/y ) / 2, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][2]
-            out_offsets[1, i] = offsets[1][2]
-        elif ( (three_fourth_pi < a_y or a_y < -three_fourth_pi) and \
-               (three_fourth_pi < a_z or a_z < -three_fourth_pi) ):
-            # Top.
-            output[0, i] = min( max( ( 1 - x/y ) / 2, 0 ), 1 )
-            output[1, i] = min( max( ( 1 - z/y ) / 2, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][4]
-            out_offsets[1, i] = offsets[1][4]
-        elif ( one_fourth_pi <= azimuth and azimuth < three_fourth_pi ):
-            # Front.
-            output[0, i] = min( max( ( 1 + x/z ) / 2, 0 ), 1 )
-            output[1, i] = min( max( ( 1 + y/z ) / 2, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][0]
-            out_offsets[1, i] = offsets[1][0]
-        elif ( -one_fourth_pi <= azimuth and azimuth < one_fourth_pi ):
-            # Right.
-            output[0, i] = min( max( ( 1 - z/x ) / 2, 0 ), 1 )
-            output[1, i] = min( max( ( 1 + y/x ) / 2, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][1]
-            out_offsets[1, i] = offsets[1][1]
-        elif ( -three_fourth_pi <= azimuth and azimuth < -one_fourth_pi ):
-            # Back.
-            output[0, i] = min( max( ( 1 + x/z ) / 2, 0 ), 1 )
-            output[1, i] = min( max( ( 1 - y/z ) / 2, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][5]
-            out_offsets[1, i] = offsets[1][5]
-        elif ( three_fourth_pi <= azimuth or azimuth < -three_fourth_pi ):
-            # Left.
-            output[0, i] = min( max( ( 1 - z/x ) / 2, 0 ), 1 )
-            output[1, i] = min( max( ( 1 - y/x ) / 2, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][3]
-            out_offsets[1, i] = offsets[1][3]
-        else:
-            raise Exception('xy invalid.')
-            # raise Exception(f'x = {x}, y = {y}, z = {z}, a_y = {a_y}, a_z = {a_z}, one_fourth_pi = {one_fourth_pi}, half_pi = {half_pi}')
-
-    output[:, np.logical_not(valid_mask)] = -1
-
-    return output, out_offsets
-
-@cuda.jit()
-def k_sample_coor(
-    output, out_offsets, xyz, offsets):
-    # Prepare the index.
-    x_idx    = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    x_stride = cuda.blockDim.x * cuda.gridDim.x
-
-    # Constants.
-    one_fourth_pi   = np.pi / 4
-    half_pi         = np.pi / 2
-    three_fourth_pi = one_fourth_pi + half_pi
-
-    # Dimensionless image size.
-    dls = 2 # 90 degrees of FOV.
-    # dls = 1.9969 # 89.912 degrees of FOV.
-    dls_half = dls / 2
-
-    # Loop.
-    for i in range( x_idx, xyz.shape[1], x_stride ):
-        # already rotated to the raw frame, z-forward, x-right, y-downwards.
-        x = xyz[0, i]
-        y = xyz[1, i]
-        z = xyz[2, i]
-
-        a_y     = math.atan2(x, y) # Angle w.r.t. y+ axis projected to the x-y plane.
-        a_z     = math.atan2(z, y) # Angle w.r.t. y+ axis projected to the y-z plane.
-        azimuth = math.atan2(z, x) # Angle w.r.t. x+ axis projected to the z-x plane.
-
-        if ( -one_fourth_pi < a_y and a_y < one_fourth_pi and \
-             -one_fourth_pi < a_z and a_z < one_fourth_pi ):
-            # Bottom.
-            output[0, i] = min( max( ( dls_half + x/y ) / dls, 0 ), 1 )
-            output[1, i] = min( max( ( dls_half - z/y ) / dls, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][2]
-            out_offsets[1, i] = offsets[1][2]
-        elif ( (three_fourth_pi < a_y or a_y < -three_fourth_pi) and \
-               (three_fourth_pi < a_z or a_z < -three_fourth_pi) ):
-            # Top.
-            output[0, i] = min( max( ( dls_half - x/y ) / dls, 0 ), 1 )
-            output[1, i] = min( max( ( dls_half - z/y ) / dls, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][4]
-            out_offsets[1, i] = offsets[1][4]
-        elif ( one_fourth_pi <= azimuth and azimuth < three_fourth_pi ):
-            # Front.
-            output[0, i] = min( max( ( dls_half + x/z ) / dls, 0 ), 1 )
-            output[1, i] = min( max( ( dls_half + y/z ) / dls, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][0]
-            out_offsets[1, i] = offsets[1][0]
-        elif ( -one_fourth_pi <= azimuth and azimuth < one_fourth_pi ):
-            # Right.
-            output[0, i] = min( max( ( dls_half - z/x ) / dls, 0 ), 1 )
-            output[1, i] = min( max( ( dls_half + y/x ) / dls, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][1]
-            out_offsets[1, i] = offsets[1][1]
-        elif ( -three_fourth_pi <= azimuth and azimuth < -one_fourth_pi ):
-            # Back.
-            output[0, i] = min( max( ( dls_half + x/z ) / dls, 0 ), 1 )
-            output[1, i] = min( max( ( dls_half - y/z ) / dls, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][5]
-            out_offsets[1, i] = offsets[1][5]
-        elif ( three_fourth_pi <= azimuth or azimuth < -three_fourth_pi ):
-            # Left.
-            output[0, i] = min( max( ( dls_half - z/x ) / dls, 0 ), 1 )
-            output[1, i] = min( max( ( dls_half - y/x ) / dls, 0 ), 1 )
-            out_offsets[0, i] = offsets[0][3]
-            out_offsets[1, i] = offsets[1][3]
-
-def sample_coor_cuda( 
-    xyz, 
-    valid_mask,
-    offsets=OFFSETS):
-
-    output      = np.zeros((2, xyz.shape[1]), dtype=xyz.dtype)
-    out_offsets = np.zeros_like(output)
-    
-    # Prepare the memory.
-    d_xyz         = cuda.to_device(xyz)
-    d_output      = cuda.to_device(output)
-    d_out_offsets = cuda.to_device(out_offsets)
-    d_offsets     = cuda.to_device(offsets)
-
-    cuda.synchronize()
-    k_sample_coor[[1024,1,1],[256,1,1]]( d_output, d_out_offsets, d_xyz, d_offsets )
-    cuda.synchronize()
-
-    output = d_output.copy_to_host()
-    out_offsets = d_out_offsets.copy_to_host()
-    # print(f'output.dtype = {output.dtype}')
-    
-    invalid_mask = np.logical_not(valid_mask)
-    output[:, invalid_mask] = -1
-
-    return output, out_offsets
+from .six_images_common import (FRONT, 
+                               OFFSETS, 
+                               make_image_cross_npy, make_image_cross_torch )
+from .six_images_numba import ( sample_coor, sample_coor_cuda )
 
 @register(SAMPLERS)
-class SixPlanarAsBase(PlanarAsBase):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT):
+class SixPlanarNumba(PlanarAsBase):
+    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640)):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model: A camera model for the fisheye camera.
         '''
-        super(SixPlanarAsBase, self).__init__(fov, camera_model=camera_model, R_raw_fisheye=R_raw_fisheye)
-
-    def make_image_cross(self, imgs):
-        '''
-        Arguments:
-        imgs (dict of arrays): The six images with the keys as front, back, left, right, top, and bottom.
-
-        Returns:
-        A image cross with shape (3*H, 4*W).
-        '''
+        super().__init__(
+            fov, 
+            camera_model=camera_model, 
+            R_raw_fisheye=R_raw_fisheye,
+            cached_raw_shape=cached_raw_shape )
         
-        global FRONT, BACK, LEFT, RIGHT, TOP, BOTTOM
+        # The 3D coordinates of the hyper-surface.
+        # xyz, valid_mask = self.get_xyz(back_shift_pixel=True)
+        xyz, valid_mask = self.get_xyz(back_shift_pixel=False)
+        self.xyz = xyz.cpu().numpy()
+        self.valid_mask = valid_mask.view(self.shape).cpu().numpy().astype(bool)
         
-        H, W = imgs[FRONT].shape[:2]
-        d_type = imgs[FRONT].dtype
+        # Explicity set the device to 'cuda' for better speed during construction.
+        # Specifically, the call to self.update_remap_coordinates().
+        self.device = 'cuda'
+        
+        # The remap coordinates.
+        self.mx = None
+        self.my = None
+        self.update_remap_coordinates( self.cached_raw_shape )
 
-        if ( imgs[FRONT].ndim == 3 ):
-            # Get the last dimension of the input image.
-            last_dim = imgs[FRONT].shape[2]
-            canvas = np.zeros( ( 3*H, 4*W, last_dim ), dtype=d_type )
-        elif ( imgs[FRONT].ndim == 2 ):
-            canvas = np.zeros( ( 3*H, 4*W ), dtype=d_type )
-        else:
-            raise Exception(f'Wrong dimension of the input images. imgs[FRONT].shape = {imgs[FRONT].shape}')
-
-        canvas[  H:2*H,   W:2*W, ...] = imgs[FRONT]  # Front.
-        canvas[  H:2*H, 2*W:3*W, ...] = imgs[RIGHT]  # Right.
-        canvas[2*H:3*H,   W:2*W, ...] = imgs[BOTTOM] # Bottom.
-        canvas[  H:2*H,   0:W,   ...] = imgs[LEFT]   # Left.
-        canvas[  0:H,     W:2*W, ...] = imgs[TOP]    # Top.
-        canvas[  H:2*H, 3*W:4*W, ...] = imgs[BACK]   # Top.
-
-        # Padding.
-        # Right.
-        canvas[ H-1, 2*W:3*W, ... ] = imgs[TOP][    ::-1, -1, ... ]
-        canvas[ 2*H, 2*W:3*W, ... ] = imgs[BOTTOM][    :, -1, ... ]
-        # Bottom.
-        canvas[ 2*H:3*H, 2*W, ... ] = imgs[RIGHT][ -1,    :, ... ]
-        canvas[ 2*H:3*H, W-1, ... ] = imgs[LEFT][  -1, ::-1, ... ]
-        # Left.
-        canvas[ H-1, 0:W, ... ] = imgs[TOP][       :, 0, ...]
-        canvas[ 2*H, 0:W, ... ] = imgs[BOTTOM][ ::-1, 0, ...]
-        # Top.
-        canvas[ 0:H, W-1, ... ] = imgs[LEFT][  0,    :, ...]
-        canvas[ 0:H, 2*W, ... ] = imgs[RIGHT][ 0, ::-1, ...]
-        # Back.
-        canvas[ H-1, 3*W:4*W, ... ] = imgs[TOP][     0, ::-1, ... ]
-        canvas[ 2*H, 3*W:4*W, ... ] = imgs[BOTTOM][ -1, ::-1, ... ]
-
-        return canvas
+    @PlanarAsBase.device.setter
+    def device(self, device):
+        PlanarAsBase.device.fset(self, device)
+        # Do nothing.
 
     def __repr__(self):
-        s = f'''fov = {self.fov}
+        s = f'''SixPlanarNumba
+fov = {self.fov}
 shape = {self.shape}
-a = {self.a}
-s = 
-{self.s}
-invs = 
-{self.invS}
-p = {self.p}
-flagCuda = {self.flag_cuda}
 '''
         return s
+
+    def update_remap_coordinates(self, support_shape):
+        H, W = support_shape
+        
+        if not isinstance(support_shape, np.ndarray):
+            support_shape = np.array( [H, W], dtype=np.float32 ).reshape((2, 1))
+
+        # Get the sample locations.
+        if ( self.device != 'cpu' ):
+            m, offsets = sample_coor_cuda( self.xyz, self.valid_mask.reshape((-1,)) )
+        else:
+            m, offsets = sample_coor(self.xyz, self.valid_mask.reshape((-1,)))
+
+        # We need to properly scale the dimensionless values in m to use cv2.remap().
+        # Refer to self.convert_dimensionless_torch_grid_2_ocv_remap_format() for consistency.
+        m[0, :] = W / ( W - 0.5 ) * ( m[0, :] - 0.5 ) + 0.5
+        m[1, :] = H / ( H - 0.5 ) * ( m[1, :] - 0.5 ) + 0.5
+
+        m = m * ( support_shape - 1 ) + offsets * support_shape
+
+        self.mx = m[0, :].reshape(self.shape)
+        self.my = m[1, :].reshape(self.shape)
 
     def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
         '''
         Arguments:
-        imgs (list of arrays): The five images in the order of front, right, bottom, left, and top.
+        imgs (list of arrays): The six images in the order of front, right, bottom, left, top, and back.
         interpolation (str): The interpolation method, could be linear or nearest.
         invalid_pixel_value (int): The value of the invalid pixel. For RGB images, it is normally 127. For depth, it is -1.
         
@@ -283,62 +95,209 @@ flagCuda = {self.flag_cuda}
         The generated fisheye image.
         '''
 
-        global FRONT, RIGHT, BOTTOM, LEFT, TOP, BACK
-
-        # Make the image cross.
-        img_cross = self.make_image_cross( imgs )
-        # cv2.imwrite('img_cross.png', img_cross)
+        global FRONT, INTER_MAP_OCV
 
         # Get the original shape of the input images.
         img_shape = np.array(imgs[FRONT].shape[:2], dtype=np.float32).reshape((2, 1))
-
-        # The 3D coordinates of the hyper-surface.
-        xyz, valid_mask = self.get_xyz()
-
-        # Get the sample locations.
-        if ( self.flag_cuda ):
-            m, offsets = sample_coor_cuda( xyz, valid_mask )
-        else:
-            m, offsets = sample_coor(xyz, valid_mask)
-
-        m = m * ( img_shape - 1 ) + offsets * img_shape
-
-        mx = m[0, :].reshape(self.shape)
-        my = m[1, :].reshape(self.shape)
+        
+        # Check the input shape.
+        if not self.is_same_as_cached_shape( img_shape ):
+            self.update_remap_coordinates( img_shape )
+            self.cached_raw_shape = img_shape
+        
+        # Make the image cross.
+        img_cross = make_image_cross_npy( imgs )
+        # cv2.imwrite('img_cross.png', img_cross)
 
         # Get the interpolation method.
-        interp_method = INTER_MAP[interpolation]
+        interp_method = INTER_MAP_OCV[interpolation]
 
         # Sample.
         sampled = cv2.remap( 
             img_cross, 
-            mx, my, 
+            self.mx, self.my, 
             interpolation=interp_method )
 
         # Apply gray color on invalid coordinates.
-        invalid = np.logical_not(valid_mask).reshape(self.shape)
+        invalid = np.logical_not(self.valid_mask)
         sampled[invalid, ...] = invalid_pixel_value
 
-        return sampled, valid_mask
+        return sampled, self.valid_mask
 
-    def compute_mean_samping_diff(self, img_shape):
-        img_shape = np.array(img_shape, dtype=np.float32).reshape((2, 1))
+    def compute_mean_samping_diff(self, support_shape):
+        support_shape = np.array(support_shape, dtype=np.float32).reshape((2, 1))
 
+        # Check the input shape.
+        if not self.is_same_as_cached_shape( support_shape ):
+            self.update_remap_coordinates( support_shape )
+            self.cached_raw_shape = support_shape
+
+        # compute_8_way_sample_msr_diff only supports torch now.
+        s = torch.from_numpy(np.stack( (self.mx, self.my), axis=-1 )).unsqueeze(0).to(self.device)
+        vm = torch.from_numpy(self.valid_mask).unsqueeze(0).unsqueeze(0).to(self.device)
+        d = self.compute_8_way_sample_msr_diff( s, vm )
+        
+        return torch_2_output(d, flag_uint8=False), self.valid_mask
+
+@register(SAMPLERS)
+class SixPlanarTorch(PlanarAsBase):
+    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640)):
+        '''
+        Arguments:
+        fov (float): Full FoV of the lens in degrees.
+        camera_model: A camera model for the fisheye camera.
+        '''
+        super().__init__(
+            fov, 
+            camera_model=camera_model, 
+            R_raw_fisheye=R_raw_fisheye,
+            cached_raw_shape=cached_raw_shape )
+        
         # The 3D coordinates of the hyper-surface.
-        xyz, valid_mask = self.get_xyz()
+        self.xyz, self.valid_mask = self.get_xyz()
+        self.valid_mask = self.valid_mask.view(self.shape)
+        
+        self.image_cross_layout = [3, 4]
+        self.image_cross_layout_device = \
+            torch.Tensor(self.image_cross_layout).to(dtype=torch.float32)
+            
+        self.OFFSETS_TORCH = torch.from_numpy(OFFSETS).to(dtype=torch.float32).permute((1,0)).contiguous()
+        
+        # === For the CuPy module. ===
+        import os
+        
+        # Read the CUDA source.
+        _CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
+        with open( os.path.join( _CURRENT_PATH, 'six_images_cupy.cu' ), 'r' ) as fp:
+            cuda_source = fp.read()
+        
+        # Compile the CUDA source.
+        cupy_module = cupy.RawModule(code=cuda_source)
+        self.sample_coor_cuda = cupy_module.get_function('cu_sample_coor')
+        
+        # Make a copy of xyz. Make it become Nx3.
+        self.xyz_T = self.xyz.permute((1,0)).contiguous()
+        
+        self.cuda_block_size = 256
+        self.cuda_grid_size = int( math.ceil( self.xyz_T.shape[0]*self.xyz_T.shape[1] / self.cuda_block_size ) )
+        
+        # Create the grid.
+        # First dummy self.grid value then create the real one.
+        self.grid = torch.zeros((1, 1, 1, 2), dtype=torch.float32, device=self.device)
+        
+        # Explicity set device to 'cuda' for faster computation during the construction.
+        self.device = 'cuda'
+        
+        self.create_grid()
 
+    @PlanarAsBase.device.setter
+    def device(self, device):
+        PlanarAsBase.device.fset(self, device)
+        
+        self.xyz = self.xyz.to(device=self.device)
+        self.valid_mask = self.valid_mask.to(device=self.device)
+        self.image_cross_layout_device = self.image_cross_layout_device.to(device=self.device)
+        self.OFFSETS_TORCH = self.OFFSETS_TORCH.to(device=self.device)
+        self.xyz_T = self.xyz_T.to(device=self.device)
+        self.grid = self.grid.to(device=self.device)
+
+    def __repr__(self):
+        s = f'''SixPlanarTorch
+fov = {self.fov}
+shape = {self.shape}
+'''
+        return s
+
+    def create_grid(self):
         # Get the sample locations.
-        if ( self.flag_cuda ):
-            m, offsets = sample_coor_cuda( xyz, valid_mask )
+        if ( self.device != 'cpu' ):
+            start_time = time.time()
+            # Allocate m and offsets.
+            m = torch.zeros( (self.xyz_T.shape[0], 2), dtype=torch.float32, device=self.device )
+            offsets = m.detach().clone()
+            
+            # Call the CUDA function.
+            self.sample_coor_cuda(
+                block=(self.cuda_block_size, ),
+                grid=(self.cuda_grid_size, ),
+                args=(
+                    cupy.int32(self.xyz_T.shape[0]),
+                    self.xyz_T.data_ptr(),
+                    self.OFFSETS_TORCH.data_ptr(),
+                    m.data_ptr(),
+                    offsets.data_ptr()
+                )
+            )
+            
+            # Handle the valid mask.
+            invalid_mask = torch.logical_not(self.valid_mask).view((-1,))
+            m[invalid_mask, :] = -1 # NOTE: This might be a bug.
+            d = cupy.cuda.Device()
+            d.synchronize()
+            print(f'Time for CUDA: {time.time() - start_time}s. ')
         else:
-            m, offsets = sample_coor(xyz, valid_mask)
+            m, offsets = sample_coor(
+                self.xyz.cpu().numpy(), 
+                self.valid_mask.view((-1,)).cpu().numpy().astype(bool))
 
-        m = m * ( img_shape - 1 ) + offsets * img_shape
+        m[:, 0] = ( m[:, 0] + offsets[:, 0]) / self.image_cross_layout_device[1] * 2 - 1
+        m[:, 1] = ( m[:, 1] + offsets[:, 1]) / self.image_cross_layout_device[0] * 2 - 1
+        m = m.view( ( 1, *self.shape, 2 ) )
+        
+        self.grid = m
 
-        mx = m[0, :].reshape(self.shape)
-        my = m[1, :].reshape(self.shape)
-        valid_mask = valid_mask.reshape(self.shape)
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
+        '''
+        Arguments:
+        imgs (dict of arrays or list of dicts): The six images in the order of front, right, bottom, left, top, and back.
+        interpolation (str): The interpolation method, could be linear or nearest.
+        invalid_pixel_value (int): The value of the invalid pixel. For RGB images, it is normally 127. For depth, it is -1.
+        
+        Returns:
+        The generated fisheye image. The image might be inside a list.
+        '''
 
-        d = self.compute_8_way_sample_msr_diff( np.stack( (mx, my), axis=-1 ), valid_mask )
-        return d, valid_mask
-    
+        # Make the image cross.
+        img_cross, flag_uint8, single_support_shape = \
+            make_image_cross_torch( imgs, device=self.device )
+        N = img_cross.shape[0]
+        
+        if not self.is_same_as_cached_shape( single_support_shape ):
+            self.cached_raw_shape = single_support_shape
+        
+        sampled = F.grid_sample( 
+                                img_cross, 
+                                self.grid.repeat((N, 1, 1, 1)), 
+                                mode=INTER_MAP[interpolation], 
+                                align_corners=self.align_corners )
+
+        # Apply gray color on invalid coordinates.
+        invalid_mask = torch.logical_not(self.valid_mask)
+        
+        if flag_uint8:
+            invalid_pixel_value /= 255.0
+        
+        sampled[..., invalid_mask] = invalid_pixel_value
+
+        start_time = time.time()
+        output_sampled = torch_2_output(sampled, flag_uint8)
+        output_mask = self.valid_mask.cpu().numpy().astype(bool)
+        print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
+        
+        return output_sampled, output_mask
+
+    def compute_mean_samping_diff(self, support_shape):
+        if not self.is_same_as_cached_shape( support_shape ):
+            self.cached_raw_shape = support_shape
+        
+        # Get to [0, 1] range.
+        m = self.grid.detach().clone()
+        m = ( m + 1 ) / 2
+        
+        # Convert back to pixel coordinates.
+        m[..., 0] *= support_shape[1]
+        m[..., 1] *= support_shape[0]
+
+        d = self.compute_8_way_sample_msr_diff( m, self.valid_mask.unsqueeze(0).unsqueeze(0) )
+        
+        return torch_2_output(d, flag_uint8=False), self.valid_mask.cpu().numpy().astype(bool)
