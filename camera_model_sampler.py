@@ -3,10 +3,12 @@ import copy
 import numpy as np
 
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 
 from .planar_as_base import ( PlanarAsBase, INTER_MAP, input_2_torch, torch_2_output )
 from .register import (SAMPLERS, register)
+
+from ..mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
 class CameraModelRotation(PlanarAsBase):
@@ -48,13 +50,15 @@ class CameraModelRotation(PlanarAsBase):
         # Get the rays in xyz coordinates in the target camera image frame (CIF).
         # The rays has been already transformed to the target image frame.
         xyz, valid_mask_target = self.get_xyz()
+        if isinstance(xyz, FTensor):
+            xyz = xyz.tensor()
 
         # Get the sample location in the raw image.
-        pixel_coord_raw, valid_mask_raw = camera_model_raw.point_3d_2_pixel( xyz )
+        pixel_coord_raw, valid_mask_raw = camera_model_raw.point_3d_2_pixel( xyz, normalized=True )
 
         # Reshape the sample location.
-        sx = pixel_coord_raw[0, :].reshape( camera_model_target.ss.shape ) / camera_model_raw.ss.shape[1] * 2 - 1
-        sy = pixel_coord_raw[1, :].reshape( camera_model_target.ss.shape ) / camera_model_raw.ss.shape[0] * 2 - 1
+        sx = pixel_coord_raw[0, :].reshape( camera_model_target.ss.shape )
+        sy = pixel_coord_raw[1, :].reshape( camera_model_target.ss.shape )
         self.grid = torch.stack((sx, sy), dim=-1).unsqueeze(0)
 
         # Compute the valid mask.
@@ -83,7 +87,7 @@ class CameraModelRotation(PlanarAsBase):
         '''
         
         # Convert to torch Tensor with [N, C, H, W] shape.
-        img, flag_uint8 = input_2_torch(img)
+        img, flag_uint8 = input_2_torch(img, self.device)
         
         self.check_input_shape(img.shape[-2:])
 
