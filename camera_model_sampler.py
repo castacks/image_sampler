@@ -64,6 +64,7 @@ class CameraModelRotation(PlanarAsBase):
         # Compute the valid mask.
         self.invalid_mask = torch.logical_not( torch.logical_and( valid_mask_raw, valid_mask_target ) )
         self.invalid_mask_reshaped = self.invalid_mask.view( camera_model_target.ss.shape )
+        self.valid_mask_reshaped = torch.logical_not( self.invalid_mask_reshaped )
         self.grid[:, self.invalid_mask_reshaped, :] = -1 # NOTE: This might be a bug.
 
     @PlanarAsBase.device.setter
@@ -101,7 +102,7 @@ class CameraModelRotation(PlanarAsBase):
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = 0.0
 
-        return torch_2_output(sampled, flag_uint8), self.invalid_mask_reshaped.cpu().numpy().astype(bool)
+        return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
 
     def compute_mean_samping_diff(self, support_shape):
         self.check_input_shape(support_shape)
