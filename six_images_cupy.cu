@@ -1,5 +1,5 @@
 
-#include <math_constants.h>
+// #include <math_constants.h>
 
 extern "C" __global__ void cu_sample_coor(
     int n_points,
@@ -10,8 +10,8 @@ extern "C" __global__ void cu_sample_coor(
     const int x_stride = blockDim.x * gridDim.x;
 
     // Constants.
-    const float one_fourth_pi   = CUDART_PIO4_F;
-    const float half_pi         = CUDART_PIO2_F;
+    const float one_fourth_pi   = 0.785398163F; // Defined as CUDART_PIO4_F in <math_constants.h>;
+    const float half_pi         = 1.570796327F; // Defined as CUDART_PIO2_F in <math_constants.h>;
     const float three_fourth_pi = one_fourth_pi + half_pi;
 
     // Dimensionless image size.
