@@ -72,9 +72,10 @@ class CameraModelRotation(PlanarAsBase):
         PlanarAsBase.device.fset(self, device)
         
         self.camera_model_raw.device = self.device
-        self.grid = self.grid.to(device=self.device)
         self.invalid_mask = self.invalid_mask.to(device=self.device)
         self.invalid_mask_reshaped = self.invalid_mask_reshaped.to(device=self.device)
+        self.valid_mask_reshaped = self.valid_mask_reshaped.to(device=self.device)
+        self.grid = self.grid.to(device=self.device)
 
     def check_input_shape(self, img_shape):
         # Get the shape of the input image.
