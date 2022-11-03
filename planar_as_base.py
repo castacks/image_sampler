@@ -78,6 +78,14 @@ class PlanarAsBase(object):
     @property
     def align_corners(self):
         return False
+    
+    @property
+    def align_corners_nearest(self):
+        return True
+    
+    def grid_sample(self, x, grid, mode, padding_mode='zeros'):
+        align_corners = self.align_corners_nearest if mode == 'nearest' else self.align_corners
+        return F.grid_sample(x, grid, mode=mode, padding_mode=padding_mode, align_corners=align_corners)
 
     @property
     def device(self):
@@ -220,10 +228,9 @@ class PlanarAsBase(object):
         for shift in shifts:
             grid_shifted = grid + shift
 
-            s_a = F.grid_sample( a, 
+            s_a = self.grid_sample( a, 
                                  grid_shifted, 
                                  mode='nearest', 
-                                 align_corners=self.align_corners, 
                                  padding_mode='reflection' )
             
             d = ( s[:, :2, :, :] - s_a[:, :2, :, :] ) * s_a[:, 2, :, :].unsqueeze(1)

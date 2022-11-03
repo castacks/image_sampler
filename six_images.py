@@ -265,11 +265,10 @@ shape = {self.shape}
         if not self.is_same_as_cached_shape( single_support_shape ):
             self.cached_raw_shape = single_support_shape
         
-        sampled = F.grid_sample( 
+        sampled = self.grid_sample( 
                                 img_cross, 
                                 self.grid.repeat((N, 1, 1, 1)), 
-                                mode=INTER_MAP[interpolation], 
-                                align_corners=self.align_corners )
+                                mode=INTER_MAP[interpolation] )
 
         # Apply gray color on invalid coordinates.
         invalid_mask = torch.logical_not(self.valid_mask)

@@ -94,10 +94,9 @@ class CameraModelRotation(PlanarAsBase):
         self.check_input_shape(img.shape[-2:])
 
         # Sample.
-        sampled = F.grid_sample( img, 
+        sampled = self.grid_sample( img, 
                                  self.grid, 
                                  mode=INTER_MAP[interpolation], 
-                                 align_corners=self.align_corners,
                                  padding_mode='reflection' )
 
         # Handle invalid pixels.

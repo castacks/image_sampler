@@ -125,10 +125,9 @@ class FullViewRotation(PlanarAsBase):
         grid = self.grid.repeat( (N, 1, 1, 1) )
 
         # Sample.
-        sampled = F.grid_sample( t, 
+        sampled = self.grid_sample( t, 
                                  grid, 
                                  mode=INTER_MAP[interpolation], 
-                                 align_corners=self.align_corners,
                                  padding_mode='reflection')
 
         # Handle invalid pixels.
