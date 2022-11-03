@@ -97,7 +97,7 @@ class CameraModelRotation(PlanarAsBase):
         sampled = self.grid_sample( img, 
                                  self.grid, 
                                  mode=INTER_MAP[interpolation], 
-                                 padding_mode='reflection' )
+                                 padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
 
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = 0.0

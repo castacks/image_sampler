@@ -231,7 +231,7 @@ class PlanarAsBase(object):
             s_a = self.grid_sample( a, 
                                  grid_shifted, 
                                  mode='nearest', 
-                                 padding_mode='reflection' )
+                                 padding_mode='border' )
             
             d = ( s[:, :2, :, :] - s_a[:, :2, :, :] ) * s_a[:, 2, :, :].unsqueeze(1)
             d = torch.linalg.norm( d, dim=1, keepdim=True )
