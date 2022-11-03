@@ -335,14 +335,20 @@ class FishAsBase():
         img = img.copy()
         # Visualize the pinholes on the fish.
         print("Visualizing pinhole-resampled areas on top of the fisheye image.")
-        for vn,un in tqdm.tqdm(zip(self.grid[:, :, :, 0].flatten(), self.grid[:, :, :, 1].flatten()), total = len(self.grid[:, :, :, 0].flatten())):
+        un_to_u = self.fish_camera_model.ss.shape[0]/2
+        vn_to_v = self.fish_camera_model.ss.shape[1]/2
+        vns = self.grid[:, :, :, 0].flatten().cpu()
+        uns = self.grid[:, :, :, 1].flatten().cpu()
+        for vn,un in tqdm.tqdm(zip(vns, uns), total = len(self.grid[:, :, :, 0].flatten())):
             # U and V are flipped since the grid operates on x,y.
-            u = un*self.fish_camera_model.ss.shape[0]/2 + self.fish_camera_model.ss.shape[0]/2
-            v = vn*self.fish_camera_model.ss.shape[1]/2 + self.fish_camera_model.ss.shape[1]/2
+            u = un*un_to_u + un_to_u
+            v = vn*vn_to_v + vn_to_v
+
             u = int(u.item())
             v = int(v.item())
             try:
-                img[u,v] = np.array([255,0,0])
+                # img[u,v][0] = img[u,v] * 0.5 + 0.5 * np.array([255,0,0])
+                img[u,v][0] = 255
             except:
                 print(f"Could not mark pixel uv {u,v} in visualization function.")
                 continue
