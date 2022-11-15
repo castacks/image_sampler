@@ -321,10 +321,11 @@ class FishAsBase():
             # ax.imshow(self.valid_mask[b].cpu())
             ax.set_title(f"pin{b}")
         
+        self.resample_counter += 1
         if save_dir:
             fig.savefig(os.path.join(save_dir, f"{self.resample_counter}.png"))
-        self.resample_counter += 1
-        plt.show()
+        else:
+            plt.show()
 
     def visualize_grid(self, img):
         """Visualize the pixels on the fisheye img that are resampled into pinhole images.
@@ -339,7 +340,11 @@ class FishAsBase():
         vn_to_v = self.fish_camera_model.ss.shape[1]/2
         vns = self.grid[:, :, :, 0].flatten().cpu()
         uns = self.grid[:, :, :, 1].flatten().cpu()
-        for vn,un in tqdm.tqdm(zip(vns, uns), total = len(self.grid[:, :, :, 0].flatten())):
+        # Random choice of samples to dray.
+        randixs = torch.randperm(vns.shape[0])[::25]
+        vns = vns[randixs]
+        uns = uns[randixs]
+        for vn,un in tqdm.tqdm(zip(vns, uns), total = len(vns)):
             # U and V are flipped since the grid operates on x,y.
             u = un*un_to_u + un_to_u
             v = vn*vn_to_v + vn_to_v
