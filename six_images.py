@@ -84,18 +84,8 @@ shape = {self.shape}
         self.mx = m[0, :].reshape(self.shape)
         self.my = m[1, :].reshape(self.shape)
 
-    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
-        '''
-        Arguments:
-        imgs (list of arrays): The six images in the order of front, right, bottom, left, top, and back.
-        interpolation (str): The interpolation method, could be linear or nearest.
-        invalid_pixel_value (int): The value of the invalid pixel. For RGB images, it is normally 127. For depth, it is -1.
-        
-        Returns:
-        The generated fisheye image.
-        '''
-
-        global FRONT, INTER_MAP_OCV
+    def check_shape_and_make_image_cross(self, imgs):
+        global FRONT
 
         # Get the original shape of the input images.
         img_shape = np.array(imgs[FRONT].shape[:2], dtype=np.float32).reshape((2, 1))
@@ -108,6 +98,23 @@ shape = {self.shape}
         # Make the image cross.
         img_cross = make_image_cross_npy( imgs )
         # cv2.imwrite('img_cross.png', img_cross)
+        
+        return img_cross
+
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
+        '''
+        Arguments:
+        imgs (list of arrays): The six images in the order of front, right, bottom, left, top, and back.
+        interpolation (str): The interpolation method, could be linear or nearest.
+        invalid_pixel_value (int): The value of the invalid pixel. For RGB images, it is normally 127. For depth, it is -1.
+        
+        Returns:
+        The generated fisheye image.
+        '''
+
+        global INTER_MAP_OCV
+        
+        img_cross = self.check_shape_and_make_image_cross(imgs)
 
         # Get the interpolation method.
         interp_method = INTER_MAP_OCV[interpolation]
@@ -117,6 +124,43 @@ shape = {self.shape}
             img_cross, 
             self.mx, self.my, 
             interpolation=interp_method )
+
+        # Apply gray color on invalid coordinates.
+        invalid = np.logical_not(self.valid_mask)
+        sampled[invalid, ...] = invalid_pixel_value
+
+        return sampled, self.valid_mask
+    
+    def blend_interpolation(self, imgs, blend_func, invalid_pixel_value=127):
+        '''
+        This function blends the results of linear interpolation and nearest neighbor interpolation. 
+        The user is supposed to provide a callable object, blend_func, which takes in img and produces
+        a blending factor. The blending factor is a float number between 0 and 1. 1 means only nearest.
+        '''
+        
+        img_cross = self.check_shape_and_make_image_cross(imgs)
+
+        # Sample.
+        sampled_linear = cv2.remap( 
+            img_cross, 
+            self.mx, self.my, 
+            interpolation=cv2.INTER_LINEAR )
+        
+        sampled_nearest = cv2.remap( 
+            img_cross, 
+            self.mx, self.my, 
+            interpolation=cv2.INTER_NEAREST )
+        
+        # Blend factor.
+        f = blend_func(img_cross)
+        
+        # Sample from the blend factor.
+        f = cv2.remap(
+            f,
+            self.mx, self.my,
+            interpolation=cv2.INTER_NEAREST )
+        
+        sampled = f * sampled_nearest.astype(np.float32) + (1 - f) * sampled_linear.astype(np.float32)
 
         # Apply gray color on invalid coordinates.
         invalid = np.logical_not(self.valid_mask)
@@ -269,6 +313,50 @@ shape = {self.shape}
                                 img_cross, 
                                 self.grid.repeat((N, 1, 1, 1)), 
                                 mode=INTER_MAP[interpolation] )
+
+        # Apply gray color on invalid coordinates.
+        invalid_mask = torch.logical_not(self.valid_mask)
+        
+        if flag_uint8:
+            invalid_pixel_value /= 255.0
+        
+        sampled[..., invalid_mask] = invalid_pixel_value
+
+        start_time = time.time()
+        output_sampled = torch_2_output(sampled, flag_uint8)
+        output_mask = self.valid_mask.cpu().numpy().astype(bool)
+        print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
+        
+        return output_sampled, output_mask
+
+    def blend_interpolation(self, imgs, blend_func, invalid_pixel_value=127):
+        '''
+        This function blends the results of linear interpolation and nearest neighbor interpolation. 
+        The user is supposed to provide a callable object, blend_func, which takes in img and produces
+        a blending factor. The blending factor is a float number between 0 and 1. 1 means only nearest.
+        '''
+        
+        # Make the image cross.
+        img_cross, flag_uint8, single_support_shape = \
+            make_image_cross_torch( imgs, device=self.device )
+        N = img_cross.shape[0]
+        
+        if not self.is_same_as_cached_shape( single_support_shape ):
+            self.cached_raw_shape = single_support_shape
+        
+        # Sample the images.
+        grid = self.grid.repeat((N, 1, 1, 1))
+        sampled_linear  = self.grid_sample( img_cross, grid, mode='bilinear' )
+        sampled_nearest = self.grid_sample( img_cross, grid, mode='nearest'  )
+        
+        # The blend factor.
+        f = blend_func(img_cross)
+        
+        # Sample from the blend factor.
+        f = self.grid_sample( f, grid, mode='nearest' )
+        
+        # Blend.
+        sampled = f * sampled_nearest + (1 - f) * sampled_linear
 
         # Apply gray color on invalid coordinates.
         invalid_mask = torch.logical_not(self.valid_mask)
