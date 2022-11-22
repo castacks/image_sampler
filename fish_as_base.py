@@ -327,40 +327,47 @@ class FishAsBase():
         else:
             plt.show()
 
-    def visualize_grid(self, img):
+    def visualize_grid(self, img, save_dir = ""):
         """Visualize the pixels on the fisheye img that are resampled into pinhole images.
             The participating pixels are extracted from the self.grid object.
         Args:
             img (np.array (C,H,W)): The input fisheye image to be overlaid with the pinholes and shown.
         """
+        fig = plt.figure(0)
+        ax = fig.add_subplot()
+
         img = img.copy()
         # Visualize the pinholes on the fish.
+        # TODO(yoraish): the u's and v's here are not following the convention. Recheck that.
         print("Visualizing pinhole-resampled areas on top of the fisheye image.")
-        un_to_u = self.fish_camera_model.ss.shape[0]/2
-        vn_to_v = self.fish_camera_model.ss.shape[1]/2
+        un_to_u = self.fish_camera_model.ss.shape[1]/2
+        vn_to_v = self.fish_camera_model.ss.shape[0]/2
         vns = self.grid[:, :, :, 0].flatten().cpu()
         uns = self.grid[:, :, :, 1].flatten().cpu()
         # Random choice of samples to dray.
-        randixs = torch.randperm(vns.shape[0])[::25]
+        randixs = torch.randperm(vns.shape[0])[::10]
         vns = vns[randixs]
         uns = uns[randixs]
         for vn,un in tqdm.tqdm(zip(vns, uns), total = len(vns)):
-            # U and V are flipped since the grid operates on x,y.
+            # u's are x's, columns. v's are y's, rows.
             u = un*un_to_u + un_to_u
             v = vn*vn_to_v + vn_to_v
 
             u = int(u.item())
             v = int(v.item())
             try:
-                # img[u,v][0] = img[u,v] * 0.5 + 0.5 * np.array([255,0,0])
+                # img[v,u][0] = img[u,v] * 0.5 + 0.5 * np.array([255,0,0])
                 img[u,v][0] = 255
             except:
                 print(f"Could not mark pixel uv {u,v} in visualization function.")
                 continue
 
-        plt.imshow(img)
-        plt.title("Marked fisheye image.")
-        plt.show()
+        ax.imshow(img)
+        ax.set_title("Marked fisheye image.")
+        if save_dir:
+            fig.savefig(save_dir)
+        else:
+            plt.show()
 
     def is_same_as_cached_Rs_shape(self, Rs, pin_shape):
         if type(self.cached_pin_shape) == type(None) or type(self.cached_Rs_pin_in_fish) == type(None):
