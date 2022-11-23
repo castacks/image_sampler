@@ -21,6 +21,8 @@ from .six_images_common import (FRONT,
                                make_image_cross_npy, make_image_cross_torch )
 from .six_images_numba import ( sample_coor, sample_coor_cuda )
 
+def dummy_debug_callback(blend_factor_ori, blend_factor_sampled):
+    pass
 @register(SAMPLERS)
 class SixPlanarNumba(PlanarAsBase):
     def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640)):
@@ -329,7 +331,7 @@ shape = {self.shape}
         
         return output_sampled, output_mask
 
-    def blend_interpolation(self, imgs, blend_func, invalid_pixel_value=127):
+    def blend_interpolation(self, imgs, blend_func, invalid_pixel_value=127, debug_callback=dummy_debug_callback):
         '''
         This function blends the results of linear interpolation and nearest neighbor interpolation. 
         The user is supposed to provide a callable object, blend_func, which takes in img and produces
@@ -348,12 +350,15 @@ shape = {self.shape}
         grid = self.grid.repeat((N, 1, 1, 1))
         sampled_linear  = self.grid_sample( img_cross, grid, mode='bilinear' )
         sampled_nearest = self.grid_sample( img_cross, grid, mode='nearest'  )
-        
+
         # The blend factor.
-        f = blend_func(img_cross)
+        bf = blend_func(img_cross)
         
         # Sample from the blend factor.
-        f = self.grid_sample( f, grid, mode='nearest' )
+        f = self.grid_sample( bf, grid, mode='nearest' )
+        
+        # Debug.
+        debug_callback(bf, f)
         
         # Blend.
         sampled = f * sampled_nearest + (1 - f) * sampled_linear
