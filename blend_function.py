@@ -21,14 +21,14 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
     def blend_func(self, img):
         # Compute the Laplacian.
         # img is (B, C, H, W), g is (B, C, 2, H, W).
-        g = kornia.filters.spatial_gradient(img, mode='sobel', order=2)
+        g = kornia.filters.spatial_gradient(img.to(torch.float32), mode='sobel', order=2)
         
         # Sum (norm) the result along the channel dimension.
         s = torch.linalg.norm( g, dim=-3, keepdim=False )
         s = torch.linalg.norm( s, dim=-3, keepdim=True )
         
         # adaptive threshold wrt the depth value
-        adaptive_thresh = torch.clamp(img * self.threshold, self.threshold, 10)
+        adaptive_thresh = torch.clamp(img.float() * self.threshold, self.threshold, 10)
 
         # Find the over-threshold ones.
         m = s > adaptive_thresh #self.threshold
