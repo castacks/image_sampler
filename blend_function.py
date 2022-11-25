@@ -27,8 +27,11 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
         s = torch.linalg.norm( g, dim=-3, keepdim=False )
         s = torch.linalg.norm( s, dim=-3, keepdim=True )
         
+        # adaptive threshold wrt the depth value
+        adaptive_thresh = torch.clamp(img * self.threshold, self.threshold, 10)
+
         # Find the over-threshold ones.
-        m = s > self.threshold
+        m = s > adaptive_thresh #self.threshold
         m = m.to(torch.float32)
         
         # Add some dilation.
@@ -51,9 +54,12 @@ class BlendBy2ndOrderGradOcv(object):
         
         # Sum (norm) the results.
         s = np.sqrt( gx**2 + gy**2 )
-        
+
+        # adaptive threshold wrt the depth value
+        adaptive_thresh = np.clip(img.astype(np.float32) * self.threshold, self.threshold, 10)
+
         # Find the over-threshold ones.
-        m = s > self.threshold
+        m = s > adaptive_thresh #self.threshold
         m = m.astype(np.float32)
         
         # Add some dilation.
@@ -62,3 +68,22 @@ class BlendBy2ndOrderGradOcv(object):
         m = cv2.erode(m, np.ones((3, 3)), borderType=cv2.BORDER_CONSTANT, borderValue=0.0)
         
         return m
+
+if __name__=="__main__":
+    threshlist = [0.02, 0.05, 0.1, 0.5, 1, 2]
+    visfile = "/home/amigo/tmp/test_root/test_sample_downtown2/Data_easy/P000/image_lcam_back/000000_lcam_back.png"
+    imgfile = "/home/amigo/tmp/test_root/test_sample_downtown2/Data_easy/P000/depth_lcam_back/000000_lcam_back_depth.png"
+    vis = cv2.imread(visfile)
+    img = cv2.imread(imgfile, cv2.IMREAD_UNCHANGED)
+    img = np.squeeze(img.view("<f4"), axis=-1)
+    img = torch.from_numpy(img).view(1,1,640,640)
+    cv2.imshow('vis', vis)
+    imglist = []
+    for thresh in threshlist:
+        bb = BlendBy2ndOrderGradTorch(thresh)
+        yy = bb.blend_func(img)
+        yy = yy.squeeze().numpy()
+        imglist.append(yy)
+    disp = np.concatenate((np.concatenate(imglist[:3],axis=1),np.concatenate(imglist[3:],axis=1)),axis=0)
+    cv2.imshow('img',disp)
+    cv2.waitKey(0)
