@@ -6,17 +6,18 @@ import torch
 import kornia
 
 class BlendBy2ndOrderGradient(object):
-    def __init__(self, threshold) -> None:
+    def __init__(self, threshold_scaling_factor) -> None:
         super().__init__()
         
-        self.threshold = threshold
+        self.threshold_scaling_factor = threshold_scaling_factor
+        self.adaptive_threshold_max = 10
     
     def __call__(self, img):
         return self.blend_func(img)
     
 class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
-    def __init__(self, threshold) -> None:
-        super().__init__(threshold)
+    def __init__(self, threshold_scaling_factor) -> None:
+        super().__init__(threshold_scaling_factor)
         
     def blend_func(self, img):
         # Compute the Laplacian.
@@ -28,10 +29,10 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
         s = torch.linalg.norm( s, dim=-3, keepdim=True )
         
         # adaptive threshold wrt the depth value
-        adaptive_thresh = torch.clamp(img.float() * self.threshold, self.threshold, 10)
+        adaptive_thresh = torch.clamp(img.float() * self.threshold_scaling_factor, self.threshold_scaling_factor, self.adaptive_threshold_max)
 
         # Find the over-threshold ones.
-        m = s > adaptive_thresh #self.threshold
+        m = s > adaptive_thresh
         m = m.to(torch.float32)
         
         # Add some dilation.
@@ -42,8 +43,8 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
         return m
     
 class BlendBy2ndOrderGradOcv(object):
-    def __init__(self, threshold) -> None:
-        super().__init__(threshold)
+    def __init__(self, threshold_scaling_factor) -> None:
+        super().__init__(threshold_scaling_factor)
         
     def blend_func(self, img):
         # Compute the Laplacian.
@@ -56,10 +57,10 @@ class BlendBy2ndOrderGradOcv(object):
         s = np.sqrt( gx**2 + gy**2 )
 
         # adaptive threshold wrt the depth value
-        adaptive_thresh = np.clip(img.astype(np.float32) * self.threshold, self.threshold, 10)
+        adaptive_thresh = np.clip(img.astype(np.float32) * self.threshold_scaling_factor, self.threshold_scaling_factor, self.adaptive_threshold_max)
 
         # Find the over-threshold ones.
-        m = s > adaptive_thresh #self.threshold
+        m = s > adaptive_thresh
         m = m.astype(np.float32)
         
         # Add some dilation.
@@ -70,7 +71,7 @@ class BlendBy2ndOrderGradOcv(object):
         return m
 
 if __name__=="__main__":
-    threshlist = [0.02, 0.05, 0.1, 0.5, 1, 2]
+    thresh_f_list = [0.02, 0.05, 0.1, 0.5, 1, 2]
     visfile = "/home/amigo/tmp/test_root/test_sample_downtown2/Data_easy/P000/image_lcam_back/000000_lcam_back.png"
     imgfile = "/home/amigo/tmp/test_root/test_sample_downtown2/Data_easy/P000/depth_lcam_back/000000_lcam_back_depth.png"
     vis = cv2.imread(visfile)
@@ -79,8 +80,8 @@ if __name__=="__main__":
     img = torch.from_numpy(img).view(1,1,640,640)
     cv2.imshow('vis', vis)
     imglist = []
-    for thresh in threshlist:
-        bb = BlendBy2ndOrderGradTorch(thresh)
+    for thresh_f in thresh_f_list:
+        bb = BlendBy2ndOrderGradTorch(thresh_f)
         yy = bb.blend_func(img)
         yy = yy.squeeze().numpy()
         imglist.append(yy)
