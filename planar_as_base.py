@@ -48,7 +48,7 @@ class PlanarAsBase(object):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
-        camera_model (camera_model.CameraModel): This is used if dsc is None. 
+        camera_model (camera_model.CameraModel): Target camera model. 
         R_raw_fisheye (FTensor): The orientation of the fisheye camera.
         cached_raw_shape (two-element): The tentative shape of the support raw image. Use some positive values if not sure.
         '''
@@ -131,16 +131,20 @@ class PlanarAsBase(object):
         pixels that is also returned by this function.
         '''
         # The pixel coordinates.
-        xx, yy = self.mesh_grid_pixels(self.shape, flag_flatten=True) # 1D.
+        # # xx, yy = self.mesh_grid_pixels(self.shape, flag_flatten=True) # 1D.
+        # xx, yy = self.camera_model.pixel_meshgrid( flatten=True )
         
-        if back_shift_pixel:
-            xx -= 0.5
-            yy -= 0.5
+        # if back_shift_pixel:
+        #     xx -= 0.5
+        #     yy -= 0.5
         
-        pixel_coor = torch.stack( (xx, yy), dim=0 ) # 2xN
+        # pixel_coor = torch.stack( (xx, yy), dim=0 ) # 2xN
 
-        xyz, valid_mask = \
-            self.camera_model.pixel_2_ray(pixel_coor)
+        # xyz, valid_mask = \
+        #     self.camera_model.pixel_2_ray(pixel_coor)
+        
+        shift = 0 if back_shift_pixel else 0.5
+        xyz, valid_mask = self.camera_model.get_rays_wrt_sensor_frame(shift=shift)
         
         # xyz and valid_mask are torch.Tensor.
         # xyz = xyz.astype(np.float32)
@@ -205,7 +209,8 @@ class PlanarAsBase(object):
         a = torch.cat( ( s, all_ones ), dim=1 )
         
         # Make a sampling grid.
-        xx, yy = self.mesh_grid_pixels( (H, W), dimensionless=True )
+        # xx, yy = self.mesh_grid_pixels( (H, W), dimensionless=True )
+        xx, yy = self.camera_model.pixel_meshgrid(normalized=True)
         grid = torch.stack( (xx, yy), dim=-1 ).unsqueeze(0).repeat(N, 1, 1, 1)
         
         shifts = [

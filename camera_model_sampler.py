@@ -83,7 +83,7 @@ class CameraModelRotation(PlanarAsBase):
         ss = self.camera_model_raw.ss
         assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
 
-    def __call__(self, img, interpolation='linear'):
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=127):
         '''
         img could be an array or a list of arrays.
         '''
@@ -100,7 +100,49 @@ class CameraModelRotation(PlanarAsBase):
                                  padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
 
         # Handle invalid pixels.
-        sampled[..., self.invalid_mask_reshaped] = 0.0
+        sampled[..., self.invalid_mask_reshaped] = invalid_pixel_value
+
+        return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
+
+    def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
+        '''
+        This function blends the results of linear interpolation and nearest neighbor interpolation. 
+        The user is supposed to provide a callable object, blend_func, which takes in img and produces
+        a blending factor. The blending factor is a float number between 0 and 1. 1 means only nearest.
+        '''
+        
+        # Convert to torch Tensor with [N, C, H, W] shape.
+        img, flag_uint8 = input_2_torch(img, self.device)
+        
+        self.check_input_shape(img.shape[-2:])
+
+        # Sample.
+        sampled_linear = self.grid_sample( 
+                            img, 
+                            self.grid, 
+                            mode='linear', 
+                            padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
+        
+        sampled_nearest = self.grid_sample( 
+                            img, 
+                            self.grid, 
+                            mode='nearest', 
+                            padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
+        
+        # Blend factor.
+        f = blend_func( img )
+        
+        # Sample from the blend factor.
+        f = self.grid_sample(
+            f,
+            self.grid,
+            mode='nearest',
+            padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
+
+        sampled = f * sampled_nearest + (1 - f) * sampled_linear
+
+        # Handle invalid pixels.
+        sampled[..., self.invalid_mask_reshaped] = invalid_pixel_value
 
         return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
 
