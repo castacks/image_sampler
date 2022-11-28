@@ -314,7 +314,8 @@ shape = {self.shape}
         sampled = self.grid_sample( 
                                 img_cross, 
                                 self.grid.repeat((N, 1, 1, 1)), 
-                                mode=INTER_MAP[interpolation] )
+                                mode=INTER_MAP[interpolation],
+                                padding_mode='border')
 
         # Apply gray color on invalid coordinates.
         invalid_mask = torch.logical_not(self.valid_mask)
@@ -348,14 +349,14 @@ shape = {self.shape}
         
         # Sample the images.
         grid = self.grid.repeat((N, 1, 1, 1))
-        sampled_linear  = self.grid_sample( img_cross, grid, mode='bilinear' )
-        sampled_nearest = self.grid_sample( img_cross, grid, mode='nearest'  )
+        sampled_linear  = self.grid_sample( img_cross, grid, mode='bilinear', padding_mode='border' )
+        sampled_nearest = self.grid_sample( img_cross, grid, mode='nearest' , padding_mode='border' )
 
         # The blend factor.
         bf = blend_func(img_cross)
         
         # Sample from the blend factor.
-        f = self.grid_sample( bf, grid, mode='nearest' )
+        f = self.grid_sample( bf, grid, mode='nearest', padding_mode='border' )
         
         # Debug.
         debug_callback(bf, f)
