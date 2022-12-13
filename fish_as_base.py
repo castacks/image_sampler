@@ -48,7 +48,7 @@ class FishAsBase():
         """
         print("Creating a new FishAsBase object.")
         # Number of pinholes.
-        self.B = Rs_pin_in_fish.shape[0]
+        self.P = Rs_pin_in_fish.shape[0]
 
         # Note: in the following comments and descriptions, B is the batch size.
         # The device on which computations will be carried out.
@@ -61,29 +61,29 @@ class FishAsBase():
 
         # Grid. The instruction for torch.grid_sample. 
         # Tensor of shape (B, H, W, 2). H,W are the pinhole image shape. Each u,v in H,W will be filled with the value of the fisheye at the pixel specified by the last dimension of the input (size 2).
-        self.grid = torch.zeros((self.B, self.pin_shape[0], self.pin_shape[1], 2), dtype=torch.float32, device=self.device)
+        self.grid = torch.zeros((self.P, self.pin_shape[0], self.pin_shape[1], 2), dtype=torch.float32, device=self.device)
 
         # Rotations of pinholes (in the fish frame). They are all batched in a torch tensor.
         self.Rs_pin_in_fish = Rs_pin_in_fish.to(dtype=torch.float32)
 
         # The 3D coordinates of the pinhole pixels. Dummy value now.
         # Shape (B, 3, H*W).
-        self.xyz = torch.zeros((self.B, 3,1), dtype=torch.float32, device=self.device)
-        self.xyz_T = torch.zeros((self.B, 1,3), dtype=torch.float32, device=self.device)
+        self.xyz = torch.zeros((self.P, 3,1), dtype=torch.float32, device=self.device)
+        self.xyz_T = torch.zeros((self.P, 1,3), dtype=torch.float32, device=self.device)
 
         # A data stucture relating (by index) the xyz points to the (u,v) pixels those came from.
         # Shape is (B, 2, H*W).
-        self.uv_of_xyz_ix = torch.zeros((self.B, 2, 1), dtype=torch.float32, device=self.device)
+        self.uv_of_xyz_ix = torch.zeros((self.P, 2, 1), dtype=torch.float32, device=self.device)
 
         # Valid mask on the pinhole images. 
         # Shape (B, H_pin, W_pin).
-        self.valid_mask = torch.ones((self.B, *self.pin_shape))
+        self.valid_mask = torch.ones((self.P, *self.pin_shape))
 
         # The 3D coordinates of the hyper-surfaces. Each pinhole image is a 'batch' in this tensor, and it has a collection of 3d points associated with it.
         # The valid mask starts out as all-valid since, for now, all we know is that points projected from the pinholes out are all valid. When the grid will b e computed for the first time, and some points projected out of the pinholes cannot be projcted back to the fisheye (out of FoV), those will be marked as invalid as well.
         pins_xyz, pins_valid_mask = self.get_xyz(back_shift_pixel=True) # TODO(yorai): Backshift?
         self.xyz = pins_xyz
-        self.valid_mask = pins_valid_mask.view((self.B , *self.pin_shape))  
+        self.valid_mask = pins_valid_mask.view((self.P , *self.pin_shape))  
         
         # Make a copy of xyz. Make it become Nx3.
         self.xyz_T = self.xyz.permute((0, 2,1)).contiguous()
@@ -159,7 +159,7 @@ class FishAsBase():
         pixel_coor = torch.vstack( (xx, yy) ) # 2xN=H*W
         pixel_coor_uv = torch.vstack( (yy, xx) ) # 2xN=H*W
         # Remember the relationship between the xyz indices and the pixels those originated from.
-        self.uv_of_xyz_ix = pixel_coor_uv.repeat((self.B, 1 , 1))
+        self.uv_of_xyz_ix = pixel_coor_uv.repeat((self.P, 1 , 1))
         
         xyz, valid_mask = \
             self.pinx_camera_model.pixel_2_ray(pixel_coor) # Since this is a pinhole, all pixels that were projected out from the grid are expected to be valid. Assuming that the grid was the size of the size of the pinhole and that there were no evil bugs in the code.
@@ -167,13 +167,13 @@ class FishAsBase():
         # Change of reference frame. This also creates points for each camera. The output is (B, 3, N=H*W)
         pins_xyz = self.Rs_pin_in_fish @ xyz
 
-        return pins_xyz, valid_mask.repeat((self.B, 1, 1)) 
+        return pins_xyz, valid_mask.repeat((self.P, 1, 1)) 
         
 
     def create_grid(self):
         # Get the sample locations.
         # This method produces the object self.grid, which is a size (B, H, W, 2), mapping u,v in H,W of a pinhole camera to the sampling pixels in the fisheye.
-        self.grid = torch.zeros((self.B, self.pin_shape[0], self.pin_shape[1], 2), dtype=torch.float32, device=self.device)
+        self.grid = torch.zeros((self.P, self.pin_shape[0], self.pin_shape[1], 2), dtype=torch.float32, device=self.device)
 
         # Project 3D points that originated from the pinholes onto the fisheye.
         # Fish uv is of shape (B, 2, N=H*W)
@@ -186,22 +186,22 @@ class FishAsBase():
         # fish_uv_mask (B, H*W)    where each entry in a batch at an index of [pin pixel, xyz, fish pixel], is its validity.
 
         # Create the valid mask. For each index, find its pinhole pixel location, and assign its validity.
-        # Do not redeclare the valid mask here, as it may already have some invalid pixels. If you would want to, however, you'd use: self.valid_mask = torch.ones((self.B, *self.pin_shape)).
+        # Do not redeclare the valid mask here, as it may already have some invalid pixels. If you would want to, however, you'd use: self.valid_mask = torch.ones((self.P, *self.pin_shape)).
 
         print("Starting mask.")
         startmask = time.time()
-        ixs = torch.arange(self.uv_of_xyz_ix.shape[-1])# .repeat((self.B, 1))
-        bs = torch.arange(self.B)
+        ixs = torch.arange(self.uv_of_xyz_ix.shape[-1])# .repeat((self.P, 1))
+        bs = torch.arange(self.P)
         self.valid_mask = self.valid_mask.to(dtype=torch.int64, device='cpu')
         fish_uv_mask.to('cpu')
 
         # Populate the valid mask. 
         # NOTE(yoraish): this section is VERY bug-prone. A sanity-check iterative implementation is commented-out below.
         # NOTE(yoraish): this could be sped up more by removing the for loop.
-        for b in range(self.B):
-            fish_uv_mask_slice = fish_uv_mask[b].to(dtype=torch.int64)
-            self.valid_mask[b, self.uv_of_xyz_ix[b, 0, :].to(dtype=torch.int64), self.
-            uv_of_xyz_ix[b, 1, :].to(dtype=torch.int64)] = fish_uv_mask_slice
+        for p in range(self.P):
+            fish_uv_mask_slice = fish_uv_mask[p].to(dtype=torch.int64)
+            self.valid_mask[p, self.uv_of_xyz_ix[p, 0, :].to(dtype=torch.int64), self.
+            uv_of_xyz_ix[p, 1, :].to(dtype=torch.int64)] = fish_uv_mask_slice
         self.valid_mask = self.valid_mask.to(self.device)
         print("Mask took", time.time() - startmask)
         
@@ -213,7 +213,7 @@ class FishAsBase():
         fish_h, fish_w = self.fish_camera_model.ss.shape
         fish_center = torch.tensor([fish_h/2, fish_w/2]).to(self.device)
 
-        for b in range(self.B):                
+        for b in range(self.P):                
             self.grid[b, self.uv_of_xyz_ix[b, 0, :].to(dtype=torch.int64), self.
             uv_of_xyz_ix[b, 1, :].to(dtype=torch.int64), :] = ((fish_uv[b, :, :].T - fish_center)/fish_center)
 
@@ -229,7 +229,7 @@ class FishAsBase():
         print("Starting mask.")
         startmask = time.time()
         good_mask = torch.ones(self.valid_mask.shape)
-        for b in range(self.B):
+        for b in range(self.P):
             for ix in range(self.uv_of_xyz_ix[b].shape[-1]):
                 u_pin, v_pin = self.uv_of_xyz_ix[b, :, ix].to(dtype=torch.int64)
                 good_mask[b, u_pin, v_pin] = fish_uv_mask[b, ix]
@@ -239,7 +239,7 @@ class FishAsBase():
         print("Starting create grid.")
         startgrid = time.time()
         good_grid = torch.zeros(self.grid.shape)
-        for b in range(self.B):
+        for b in range(self.P):
             for ix in range(self.uv_of_xyz_ix[b].shape[-1]):
                 u_pin, v_pin = self.uv_of_xyz_ix[b, :, ix].to(dtype=torch.int32)
                 
@@ -279,7 +279,7 @@ class FishAsBase():
         img = img.to('cuda').float()
         img = img.unsqueeze(0)
         img = img.permute((0,3,1,2))
-        img = img.repeat((self.B,1,1,1))
+        img = img.repeat((self.P,1,1,1))
 
         grid  = self.grid
 
@@ -300,7 +300,7 @@ class FishAsBase():
         return sampled, self.valid_mask
 
 
-    def visualize_resampling(self, img, save_dir = "", interpolation='linear', invalid_pixel_value=0):
+    def visualize_resampling(self, img, save_dir = "", interpolation='linear', invalid_pixel_value=0, ax = None):
         """Visualize the resampled pinhole images from the input fisheye image.
 
         Args:
@@ -310,31 +310,47 @@ class FishAsBase():
             invalid_pixel_value (int, optional): pixel value for pixels that cannot be resampled from the fisheye. Defaults to 0.
         """
         sampled, valid_mask = self.__call__(img, interpolation, invalid_pixel_value)
-        fig, axes = plt.subplots(nrows = int(self.B**0.5)+1, ncols = int(self.B**0.5)+1)
-        # fig, axes = plt.subplots(nrows = 3, ncols = 3)
-        axes = axes.flatten() 
-        for b in range(self.B):
-            ax = axes[b]
+
+        pinx_cols = 5
+        pinx_rows = np.ceil(self.P/pinx_cols)
+
+
+        inner = np.ones((pinx_cols, pinx_cols), dtype=str)
+        inner [:,:] = 'a'
+
+        pinx_array = np.array(np.arange((pinx_rows*pinx_cols)).reshape((-1,pinx_cols)), dtype=str)
+        outer_nested_mosaic = inner.tolist() + pinx_array.tolist()
+        fig = plt.figure(constrained_layout=True)
+        axd = fig.subplot_mosaic(
+            outer_nested_mosaic, empty_sentinel=None
+        )
+
+        for b in range(self.P):
+            ax = axd[str(b*1.0)]
             ax.imshow(sampled[b].cpu().permute((1,2,0))/255)
 
             # Uncomment below to show the valid mask.
             # ax.imshow(self.valid_mask[b].cpu())
             ax.set_title(f"pin{b}")
         
+        self.visualize_grid(img, ax = axd['a'])
+
+
         self.resample_counter += 1
         if save_dir:
             fig.savefig(os.path.join(save_dir, f"{self.resample_counter}.png"))
         else:
             plt.show()
 
-    def visualize_grid(self, img, save_dir = ""):
+    def visualize_grid(self, img, save_dir = "", ax = None):
         """Visualize the pixels on the fisheye img that are resampled into pinhole images.
             The participating pixels are extracted from the self.grid object.
         Args:
             img (np.array (C,H,W)): The input fisheye image to be overlaid with the pinholes and shown.
         """
-        fig = plt.figure(0)
-        ax = fig.add_subplot()
+        if ax is None:
+            fig = plt.figure(0)
+            ax = fig.add_subplot(1,2,1)
 
         img = img.copy()
         # Visualize the pinholes on the fish.
@@ -364,10 +380,14 @@ class FishAsBase():
 
         ax.imshow(img)
         ax.set_title("Marked fisheye image.")
-        if save_dir:
-            fig.savefig(save_dir)
-        else:
-            plt.show()
+
+        if ax is None:
+            if save_dir:
+                fig.savefig(os.path.join(save_dir, f"marked_{self.resample_counter}.png"))
+            else:
+                plt.show()
+
+
 
     def is_same_as_cached_Rs_shape(self, Rs, pin_shape):
         if type(self.cached_pin_shape) == type(None) or type(self.cached_Rs_pin_in_fish) == type(None):
