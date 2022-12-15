@@ -4,7 +4,7 @@
 # Date:
 # 2022-06-17
 
-import cupy
+# import cupy
 import cv2
 import math
 import numpy as np
