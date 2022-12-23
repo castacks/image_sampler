@@ -280,7 +280,7 @@ shape = {self.shape}
             m[invalid_mask, :] = -1 # NOTE: This might be a bug.
             d = cupy.cuda.Device()
             d.synchronize()
-            print(f'Time for CUDA: {time.time() - start_time}s. ')
+            # print(f'Time for CUDA: {time.time() - start_time}s. ')
         else:
             m, offsets = sample_coor(
                 self.xyz.cpu().numpy(), 
@@ -328,7 +328,7 @@ shape = {self.shape}
         start_time = time.time()
         output_sampled = torch_2_output(sampled, flag_uint8)
         output_mask = self.valid_mask.cpu().numpy().astype(bool)
-        print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
+        # print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
         
         return output_sampled, output_mask
 
@@ -375,7 +375,7 @@ shape = {self.shape}
         start_time = time.time()
         output_sampled = torch_2_output(sampled, flag_uint8)
         output_mask = self.valid_mask.cpu().numpy().astype(bool)
-        print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
+        # print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
         
         return output_sampled, output_mask
 
