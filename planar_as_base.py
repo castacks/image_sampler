@@ -60,6 +60,9 @@ def torch_2_output(t, flag_uint8=True):
         return torch_2_ocv(t, scale=True, dtype=np.uint8)
     else:
         return torch_2_ocv(t, scale=False, dtype=np.float32)
+    
+def dummy_troch_2_output(t, flag_uint8=True):
+    return t
 
 class PlanarAsBase(object):
     def __init__(self, 
@@ -69,6 +72,10 @@ class PlanarAsBase(object):
                  cached_raw_shape=(1024, 2048),
                  convert_output=True):
         '''
+        NOTE: If convert_output=False, then the output is a Tensor WITH the batch dimension.
+        That is, the output is a 4D Tensor no matter whether the input is a single image
+        or a collection of images.
+        
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model (camera_model.CameraModel): Target camera model. 
@@ -101,7 +108,7 @@ class PlanarAsBase(object):
         if convert_output:
             self.convert_output = torch_2_output
         else:
-            self.convert_output = lambda t, flag_uint8=True: t
+            self.convert_output = dummy_troch_2_output
 
     def is_same_as_cached_shape(self, new_shape):
         return new_shape[0] == self.cached_raw_shape[0] and new_shape[1] == self.cached_raw_shape[1]
