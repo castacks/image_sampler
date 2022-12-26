@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 
 # Local package.
-from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP_OCV, INTER_MAP, torch_2_output )
+from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP_OCV, INTER_MAP )
 from .register import (SAMPLERS, register)
 
 from .six_images_common import (FRONT, 
@@ -23,9 +23,10 @@ from .six_images_numba import ( sample_coor, sample_coor_cuda )
 
 def dummy_debug_callback(blend_factor_ori, blend_factor_sampled):
     pass
+
 @register(SAMPLERS)
 class SixPlanarNumba(PlanarAsBase):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640)):
+    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
@@ -35,7 +36,8 @@ class SixPlanarNumba(PlanarAsBase):
             fov, 
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
-            cached_raw_shape=cached_raw_shape )
+            cached_raw_shape=cached_raw_shape,
+            convert_output=convert_output)
         
         # The 3D coordinates of the hyper-surface.
         # xyz, valid_mask = self.get_xyz(back_shift_pixel=True)
@@ -183,11 +185,11 @@ shape = {self.shape}
         vm = torch.from_numpy(self.valid_mask).unsqueeze(0).unsqueeze(0).to(self.device)
         d = self.compute_8_way_sample_msr_diff( s, vm )
         
-        return torch_2_output(d, flag_uint8=False), self.valid_mask
+        return self.convert_output(d, flag_uint8=False), self.valid_mask
 
 @register(SAMPLERS)
 class SixPlanarTorch(PlanarAsBase):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640)):
+    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
@@ -197,7 +199,8 @@ class SixPlanarTorch(PlanarAsBase):
             fov, 
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
-            cached_raw_shape=cached_raw_shape )
+            cached_raw_shape=cached_raw_shape,
+            convert_output=convert_output)
         
         # The 3D coordinates of the hyper-surface.
         self.xyz, self.valid_mask = self.get_xyz()
@@ -326,7 +329,7 @@ shape = {self.shape}
         sampled[..., invalid_mask] = invalid_pixel_value
 
         start_time = time.time()
-        output_sampled = torch_2_output(sampled, flag_uint8)
+        output_sampled = self.convert_output(sampled, flag_uint8)
         output_mask = self.valid_mask.cpu().numpy().astype(bool)
         print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
         
@@ -373,7 +376,7 @@ shape = {self.shape}
         sampled[..., invalid_mask] = invalid_pixel_value
 
         start_time = time.time()
-        output_sampled = torch_2_output(sampled, flag_uint8)
+        output_sampled = self.convert_output(sampled, flag_uint8)
         output_mask = self.valid_mask.cpu().numpy().astype(bool)
         print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
         
@@ -393,4 +396,4 @@ shape = {self.shape}
 
         d = self.compute_8_way_sample_msr_diff( m, self.valid_mask.unsqueeze(0).unsqueeze(0) )
         
-        return torch_2_output(d, flag_uint8=False), self.valid_mask.cpu().numpy().astype(bool)
+        return self.convert_output(d, flag_uint8=False), self.valid_mask.cpu().numpy().astype(bool)
