@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from .ocv_torch import ( ocv_2_torch, torch_2_ocv, TYPE_OCV_2_TORCH_MAP )
+from ..mvs_utils import torch_meshgrid
 from ..mvs_utils.ftensor import FTensor, f_eye
 
 IDENTITY_ROT = f_eye(3, f0='raw', f1='fisheye', rotation=True, dtype=torch.float32)
@@ -143,7 +144,7 @@ class PlanarAsBase(object):
         x = torch.arange( shape[1], dtype=torch.float32, device=self.device ) + 0.5 # W
         y = torch.arange( shape[0], dtype=torch.float32, device=self.device ) + 0.5 # H
 
-        xx, yy = torch.meshgrid(x, y, indexing='xy')
+        xx, yy = torch_meshgrid(x, y, indexing='xy')
         
         # Make contiguous.
         xx = xx.contiguous()
