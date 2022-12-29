@@ -3,7 +3,7 @@ import copy
 import numpy as np
 
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 
 from .planar_as_base import ( PlanarAsBase, INTER_MAP, input_2_torch, torch_2_output )
 from .register import (SAMPLERS, register)
@@ -37,17 +37,22 @@ class CameraModelRotation(PlanarAsBase):
         # assert not camera_model_target.out_to_numpy, f'Currently only supports pytorch version of target camera model. '
 
         super().__init__(
-            camera_model_target.fov_degree, 
+            # camera_model_target.fov_degree,
+            195, 
             camera_model=camera_model_target, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=(1, 1) )
 
         self.camera_model_raw = copy.deepcopy(camera_model_raw)
         self.camera_model_raw.device = self.device
+        camera_model_target.device = self.device
 
         # Get the rays in xyz coordinates in the target camera image frame (CIF).
         # The rays has been already transformed to the target image frame.
         xyz, valid_mask_target = self.get_xyz()
+        
+        # TODO(yoraish): Ftensor breaks down-the-line (not allowing element-wse multiplication). So convert to torch tensor.
+        xyz = xyz.tensor().squeeze(0)
 
         # Get the sample location in the raw image.
         pixel_coord_raw, valid_mask_raw = camera_model_raw.point_3d_2_pixel( xyz )
@@ -56,6 +61,10 @@ class CameraModelRotation(PlanarAsBase):
         sx = pixel_coord_raw[0, :].reshape( camera_model_target.ss.shape ) / camera_model_raw.ss.shape[1] * 2 - 1
         sy = pixel_coord_raw[1, :].reshape( camera_model_target.ss.shape ) / camera_model_raw.ss.shape[0] * 2 - 1
         self.grid = torch.stack((sx, sy), dim=-1).unsqueeze(0)
+
+        # Print the devices of the valid masks.
+        print(f'valid_mask_target.device: {valid_mask_target.device}')
+        print(f'valid_mask_raw.device: {valid_mask_raw.device}')
 
         # Compute the valid mask.
         self.invalid_mask = torch.logical_not( torch.logical_and( valid_mask_raw, valid_mask_target ) )
@@ -83,7 +92,7 @@ class CameraModelRotation(PlanarAsBase):
         '''
         
         # Convert to torch Tensor with [N, C, H, W] shape.
-        img, flag_uint8 = input_2_torch(img)
+        img, flag_uint8 = input_2_torch(img, device=self.device)
         
         self.check_input_shape(img.shape[-2:])
 

@@ -30,6 +30,8 @@ def input_2_torch(img, device):
     img can be a single image represented as a NumPy array, or it could
     be a collection of NumPy arrays, or it could already be a PyTorch Tensor.
     '''
+    if isinstance(img, torch.Tensor):
+        return img.to(device=device), img.dtype == torch.uint8
     
     if isinstance(img, (list, tuple)):
         flag_uint8 = img[0].dtype == np.uint8
@@ -68,7 +70,7 @@ class PlanarAsBase(object):
         # This rotation matrix is the orientation of the fisheye camera w.r.t
         # the frame where we take the raw images. And the orientation is measured
         # in the raw image frame.
-        self.R_raw_fisheye = R_raw_fisheye.to(device=self.device)
+        self.R_raw_fisheye = R_raw_fisheye.to(device=self.device, dtype=torch.float32)
         
         self.cached_raw_shape = cached_raw_shape
 
@@ -220,7 +222,7 @@ class PlanarAsBase(object):
         for shift in shifts:
             grid_shifted = grid + shift
 
-            s_a = F.grid_sample( a, 
+            s_a = torch.nn.functional.grid_sample( a, 
                                  grid_shifted, 
                                  mode='nearest', 
                                  align_corners=self.align_corners, 
