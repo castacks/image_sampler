@@ -1,5 +1,6 @@
 
 import copy
+from colorama import Fore, Style
 import numpy as np
 
 import torch
@@ -8,7 +9,9 @@ import torch.nn.functional as F
 from .planar_as_base import ( PlanarAsBase, INTER_MAP, input_2_torch, torch_2_output )
 from .register import (SAMPLERS, register)
 
-from ..mvs_utils.ftensor import FTensor
+import sys
+sys.path.append("..")
+from mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
 class CameraModelRotation(PlanarAsBase):
@@ -39,7 +42,8 @@ class CameraModelRotation(PlanarAsBase):
         # assert not camera_model_target.out_to_numpy, f'Currently only supports pytorch version of target camera model. '
 
         super().__init__(
-            camera_model_target.fov_degree, 
+            # camera_model_target.fov_degree, 
+            195,
             camera_model=camera_model_target, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=(1, 1) )
@@ -87,9 +91,17 @@ class CameraModelRotation(PlanarAsBase):
         '''
         img could be an array or a list of arrays.
         '''
-        
+
+        # Mark if the input was already in torch. If so, the output will be in torch.
+        is_in_torch = False
+
         # Convert to torch Tensor with [N, C, H, W] shape.
-        img, flag_uint8 = input_2_torch(img, self.device)
+        # If input is already a torch Tensor, then we do not need to convert it and assume that is has the correct shape.
+        if isinstance(img, torch.Tensor):
+            is_in_torch = True
+            flag_uint8 = img[0].dtype == torch.uint8
+        else:
+            img, flag_uint8 = input_2_torch(img, self.device)
         
         self.check_input_shape(img.shape[-2:])
 
@@ -101,8 +113,10 @@ class CameraModelRotation(PlanarAsBase):
 
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = invalid_pixel_value
-
-        return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
+        if is_in_torch:
+            return sampled, self.invalid_mask_reshaped
+        else:
+            return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
 
     def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
         '''

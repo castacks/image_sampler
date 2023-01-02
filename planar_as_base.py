@@ -11,7 +11,10 @@ import torch
 import torch.nn.functional as F
 
 from .ocv_torch import ( ocv_2_torch, torch_2_ocv )
-from ..mvs_utils.ftensor import FTensor, f_eye
+
+import sys
+sys.path.append("..")
+from mvs_utils.ftensor import FTensor, f_eye
 
 IDENTITY_ROT = f_eye(3, f0='raw', f1='fisheye', rotation=True, dtype=torch.float32)
 
@@ -127,8 +130,12 @@ class PlanarAsBase(object):
         All ray vectors will be transformed such that their coordiantes are
         measured in the raw frame where z-forward, x-right, and y-downward.
         
-        Some pixels are not going to have valide rays. There is a mask of valid
+        Some pixels are not going to have valid rays. There is a mask of valid
         pixels that is also returned by this function.
+
+        Returns:
+            xyz (Tensor): 3xN, where N is the number of pixels.
+            valid_mask (Tensor): 1xN, where N is the number of pixels. A binary mask.
         '''
         # The pixel coordinates.
         # # xx, yy = self.mesh_grid_pixels(self.shape, flag_flatten=True) # 1D.
@@ -153,7 +160,6 @@ class PlanarAsBase(object):
         
         # Change of reference frame.
         xyz = self.R_raw_fisheye @ xyz
-
         return xyz, valid_mask
     
     def convert_dimensionless_torch_grid_2_ocv_remap_format(self, torch_grid: torch.Tensor, raw_shape: list):
