@@ -4,12 +4,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .planar_as_base import (INTER_MAP_OCV, INTER_MAP, input_2_torch, torch_2_output, PlanarAsBase)
+from .planar_as_base import (INTER_MAP_OCV, INTER_MAP, PlanarAsBase)
 from .register import (SAMPLERS, register)
 
 @register(SAMPLERS)
 class FullViewRotation(PlanarAsBase):
-    def __init__(self, camera_model, R_raw_fisheye, cached_raw_shape=(1024, 2048)):
+    def __init__(self, camera_model, R_raw_fisheye, cached_raw_shape=(1024, 2048), convert_output=True):
         '''
         Note: Full view is the Unreal Engine's setting. It is NOT the same as the conventional 
         equirectangular projection. In Unreal Engine, the forward direction (that is where the 
@@ -31,7 +31,8 @@ class FullViewRotation(PlanarAsBase):
             camera_model.fov_degree, 
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
-            cached_raw_shape=cached_raw_shape)
+            cached_raw_shape=cached_raw_shape,
+            convert_output=convert_output)
         # import ipdb; ipdb.set_trace()
         # Get the longitude and latitude coordinates.
         self.lon_lat, invalid_mask = self.get_lon_lat()
@@ -113,7 +114,7 @@ class FullViewRotation(PlanarAsBase):
         global INTER_MAP
 
         # Convert to torch.Tensor.
-        t, flag_uint8 = input_2_torch(img, self.device)
+        t, flag_uint8 = self.convert_input(img, self.device)
 
         # Get the shape of the input image.
         N, C = t.shape[:2]
@@ -135,7 +136,7 @@ class FullViewRotation(PlanarAsBase):
         sampled[:, self.invalid_mask] = 0
         sampled = sampled.view((N, C, *self.shape))
 
-        return torch_2_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
+        return self.convert_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
     
     def __call__(self, img, interpolation='linear'):
         if self.use_ocv:
@@ -194,7 +195,7 @@ class FullViewRotation(PlanarAsBase):
     
     def blend_interpolation_torch(self, img, blend_func):
         # Convert to torch.Tensor.
-        t, flag_uint8 = input_2_torch(img, self.device)
+        t, flag_uint8 = self.convert_input(img, self.device)
 
         # Get the shape of the input image.
         N, C = t.shape[:2]
@@ -229,7 +230,7 @@ class FullViewRotation(PlanarAsBase):
         sampled[:, self.invalid_mask] = 0
         sampled = sampled.view((N, C, *self.shape))
 
-        return torch_2_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
+        return self.convert_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
     
     def blend_interpolation(self, img, blend_func):
         '''
@@ -263,4 +264,4 @@ class FullViewRotation(PlanarAsBase):
 
         d = self.compute_8_way_sample_msr_diff( grid, valid_mask.unsqueeze(0).unsqueeze(0) )
         
-        return torch_2_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(bool)
+        return self.convert_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(bool)

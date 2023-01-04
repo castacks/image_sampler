@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 
-from .planar_as_base import (input_2_torch, torch_2_output)
+from .planar_as_base import input_2_torch
 
 # -->       +---------+
 # |  x      |0,W      |0,2W

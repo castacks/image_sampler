@@ -10,7 +10,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .ocv_torch import ( ocv_2_torch, torch_2_ocv )
+from .ocv_torch import ( ocv_2_torch, torch_2_ocv, TYPE_OCV_2_TORCH_MAP )
+from ..mvs_utils import torch_meshgrid
 from ..mvs_utils.ftensor import FTensor, f_eye
 
 IDENTITY_ROT = f_eye(3, f0='raw', f1='fisheye', rotation=True, dtype=torch.float32)
@@ -25,6 +26,23 @@ INTER_MAP = {
     'linear': 'bilinear',
 }
 
+def to_torch(x, **kwargs):
+    if not isinstance(x, torch.Tensor):
+        return ocv_2_torch(x, **kwargs)
+    
+    if x.ndim == 4:
+        return x
+    elif x.ndim == 3:
+        return x.unsqueeze(0)
+    else:
+        raise Exception(f'ndim must be 4 or 3 if x is Tensor. x.shape = {x.shape}.')
+
+def is_originated_from_uint8(x):
+    if isinstance(x, torch.Tensor):
+        return x.dtype == TYPE_OCV_2_TORCH_MAP[np.uint8]
+    else:
+        return x.dtype == np.uint8
+
 def input_2_torch(img, device):
     '''
     img can be a single image represented as a NumPy array, or it could
@@ -32,25 +50,39 @@ def input_2_torch(img, device):
     '''
     
     if isinstance(img, (list, tuple)):
-        flag_uint8 = img[0].dtype == np.uint8
-        return torch.cat( [ ocv_2_torch(i, keep_dtype=False) for i in img ], dim=0 ).to(device=device), flag_uint8
+        flag_uint8 = is_originated_from_uint8(img[0])
+        return torch.cat( [ to_torch(i, keep_dtype=False) for i in img ], dim=0 ).to(device=device), flag_uint8
     else:
-        return ocv_2_torch(img, keep_dtype=False).to(device=device), img.dtype == np.uint8
+        flag_uint8 = is_originated_from_uint8(img)
+        return to_torch(img, keep_dtype=False).to(device=device), flag_uint8
 
 def torch_2_output(t, flag_uint8=True):
     if flag_uint8:
         return torch_2_ocv(t, scale=True, dtype=np.uint8)
     else:
         return torch_2_ocv(t, scale=False, dtype=np.float32)
+    
+def dummy_troch_2_output(t, flag_uint8=True):
+    return t
 
 class PlanarAsBase(object):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(1024, 2048)):
+    def __init__(self, 
+                 fov, 
+                 camera_model, 
+                 R_raw_fisheye=IDENTITY_ROT, 
+                 cached_raw_shape=(1024, 2048),
+                 convert_output=True):
         '''
+        NOTE: If convert_output=False, then the output is a Tensor WITH the batch dimension.
+        That is, the output is a 4D Tensor no matter whether the input is a single image
+        or a collection of images.
+        
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model (camera_model.CameraModel): Target camera model. 
         R_raw_fisheye (FTensor): The orientation of the fisheye camera.
         cached_raw_shape (two-element): The tentative shape of the support raw image. Use some positive values if not sure.
+        convert_output (bool): True if the output needs to be converted to NumPy (OpenCV).
         '''
         # TODO: Fixe the naming of R_raw_fisheye. Target can be any kind of image.
         super(PlanarAsBase, self).__init__()
@@ -71,6 +103,13 @@ class PlanarAsBase(object):
         self.R_raw_fisheye = R_raw_fisheye.to(device=self.device)
         
         self.cached_raw_shape = cached_raw_shape
+        
+        # Output converter.
+        self.convert_input = input_2_torch
+        if convert_output:
+            self.convert_output = torch_2_output
+        else:
+            self.convert_output = dummy_troch_2_output
 
     def is_same_as_cached_shape(self, new_shape):
         return new_shape[0] == self.cached_raw_shape[0] and new_shape[1] == self.cached_raw_shape[1]
@@ -105,7 +144,7 @@ class PlanarAsBase(object):
         x = torch.arange( shape[1], dtype=torch.float32, device=self.device ) + 0.5 # W
         y = torch.arange( shape[0], dtype=torch.float32, device=self.device ) + 0.5 # H
 
-        xx, yy = torch.meshgrid(x, y, indexing='xy')
+        xx, yy = torch_meshgrid(x, y, indexing='xy')
         
         # Make contiguous.
         xx = xx.contiguous()
