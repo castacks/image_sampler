@@ -39,8 +39,7 @@ class CameraModelRotation(PlanarAsBase):
         # assert not camera_model_target.out_to_numpy, f'Currently only supports pytorch version of target camera model. '
 
         super().__init__(
-            # camera_model_target.fov_degree, 
-            195,
+            camera_model_target.fov_degree, 
             camera_model=camera_model_target, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=(1, 1) )
