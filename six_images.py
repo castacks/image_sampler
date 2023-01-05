@@ -249,9 +249,9 @@ class SixPlanarTorch(PlanarAsBase):
 
     def __repr__(self):
         s = f'''SixPlanarTorch
-fov = {self.fov}
-shape = {self.shape}
-'''
+            fov = {self.fov}
+            shape = {self.shape}
+            '''
         return s
 
     def create_grid(self):
@@ -292,7 +292,7 @@ shape = {self.shape}
         
         self.grid = m
 
-    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127, blenderFunc=None):
         '''
         Arguments:
         imgs (dict of arrays or list of dicts): The six images in the order of front, right, bottom, left, top, and back.
@@ -302,6 +302,11 @@ shape = {self.shape}
         Returns:
         The generated fisheye image. The image might be inside a list.
         '''
+
+        if interpolation == 'blended':
+            return self.blend_interpolation(imgs, 
+                                            blenderFunc,
+                                            invalid_pixel_value=invalid_pixel_value)
 
         # Make the image cross.
         img_cross, flag_uint8, single_support_shape = \

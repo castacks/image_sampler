@@ -23,6 +23,7 @@ INTER_MAP_OCV = {
 INTER_MAP = {
     'nearest': 'nearest',
     'linear': 'bilinear',
+    'blended': 'blended'
 }
 
 def input_2_torch(img, device):

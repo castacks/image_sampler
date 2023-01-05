@@ -83,11 +83,16 @@ class CameraModelRotation(PlanarAsBase):
         ss = self.camera_model_raw.ss
         assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
 
-    def __call__(self, img, interpolation='linear', invalid_pixel_value=127):
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=127, blenderFunc = None):
         '''
         img could be an array or a list of arrays.
         '''
         
+        if interpolation == 'blended':
+            return self.blend_interpolation(img, 
+                                            blenderFunc,
+                                            invalid_pixel_value=invalid_pixel_value)
+
         # Convert to torch Tensor with [N, C, H, W] shape.
         img, flag_uint8 = input_2_torch(img, self.device)
         
@@ -95,9 +100,9 @@ class CameraModelRotation(PlanarAsBase):
 
         # Sample.
         sampled = self.grid_sample( img, 
-                                 self.grid, 
-                                 mode=INTER_MAP[interpolation], 
-                                 padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
+                                self.grid, 
+                                mode=INTER_MAP[interpolation], 
+                                padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
 
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = invalid_pixel_value
