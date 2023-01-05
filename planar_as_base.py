@@ -11,10 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from .ocv_torch import ( ocv_2_torch, torch_2_ocv )
-
-import sys
-sys.path.append("..")
-from mvs_utils.ftensor import FTensor, f_eye
+from ..mvs_utils.ftensor import  FTensor , f_eye
 
 IDENTITY_ROT = f_eye(3, f0='raw', f1='fisheye', rotation=True, dtype=torch.float32)
 
