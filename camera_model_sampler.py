@@ -6,13 +6,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .planar_as_base import ( PlanarAsBase, INTER_MAP, input_2_torch, torch_2_output )
+from .planar_as_base import ( PlanarAsBase, INTER_MAP )
 from .register import (SAMPLERS, register)
 from ..mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
 class CameraModelRotation(PlanarAsBase):
-    def __init__(self, camera_model_raw, camera_model_target, R_raw_fisheye):
+    def __init__(self, camera_model_raw, camera_model_target, R_raw_fisheye, convert_output=True):
         '''
         The raw image is a planer image that described by a camera model. 
         
@@ -42,7 +42,8 @@ class CameraModelRotation(PlanarAsBase):
             camera_model_target.fov_degree, 
             camera_model=camera_model_target, 
             R_raw_fisheye=R_raw_fisheye,
-            cached_raw_shape=(1, 1) )
+            cached_raw_shape=(1, 1),
+            convert_output=convert_output)
 
         self.camera_model_raw = copy.deepcopy(camera_model_raw)
         self.camera_model_raw.device = self.device
@@ -87,17 +88,8 @@ class CameraModelRotation(PlanarAsBase):
         '''
         img could be an array or a list of arrays.
         '''
-
-        # Mark if the input was already in torch. If so, the output will be in torch.
-        is_in_torch = False
-
         # Convert to torch Tensor with [N, C, H, W] shape.
-        # If input is already a torch Tensor, then we do not need to convert it and assume that is has the correct shape.
-        if isinstance(img, torch.Tensor):
-            is_in_torch = True
-            flag_uint8 = img[0].dtype == torch.uint8
-        else:
-            img, flag_uint8 = input_2_torch(img, self.device)
+        img, flag_uint8 = self.convert_input(img, self.device)
         
         self.check_input_shape(img.shape[-2:])
 
@@ -109,10 +101,8 @@ class CameraModelRotation(PlanarAsBase):
 
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = invalid_pixel_value
-        if is_in_torch:
-            return sampled, self.invalid_mask_reshaped
-        else:
-            return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
+
+        return self.convert_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
 
     def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
         '''
@@ -122,7 +112,7 @@ class CameraModelRotation(PlanarAsBase):
         '''
         
         # Convert to torch Tensor with [N, C, H, W] shape.
-        img, flag_uint8 = input_2_torch(img, self.device)
+        img, flag_uint8 = self.convert_input(img, self.device)
         
         self.check_input_shape(img.shape[-2:])
 
@@ -154,7 +144,7 @@ class CameraModelRotation(PlanarAsBase):
         # Handle invalid pixels.
         sampled[..., self.invalid_mask_reshaped] = invalid_pixel_value
 
-        return torch_2_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
+        return self.convert_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
 
     def compute_mean_samping_diff(self, support_shape):
         self.check_input_shape(support_shape)
@@ -167,4 +157,4 @@ class CameraModelRotation(PlanarAsBase):
         grid[..., 1] = ( grid[..., 1] + 1 ) / 2 * support_shape[0]
 
         d = self.compute_8_way_sample_msr_diff( grid, valid_mask.unsqueeze(0).unsqueeze(0) )
-        return torch_2_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(bool)
+        return self.convert_output(d, flag_uint8=False), valid_mask.cpu().numpy().astype(bool)

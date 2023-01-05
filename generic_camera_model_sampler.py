@@ -42,7 +42,8 @@ class GenericCameraModelSampler(CameraModelRotation):
         super().__init__(
             camera_model_raw=camera_model_raw, 
             camera_model_target=camera_model_target, 
-            R_raw_fisheye=R_output_in_input
+            R_raw_fisheye=R_output_in_input,
+            convert_output=False
         )
         # The passed functions.
         self.preprocessing = preprocessing
@@ -54,18 +55,13 @@ class GenericCameraModelSampler(CameraModelRotation):
         img could be an array or a list of arrays.
         '''
         # Preprocess.
-        print(f'img.shape: {img.shape}')
         img = self.preprocessing(img)
-
-        print(f'img.shape: {img.shape}')
 
         # Sample.
         sampled, valid_mask = super().__call__(img, interpolation, invalid_pixel_value)
-        print(f'sampled.shape: {sampled.shape}')
 
         # Postprocess.
         sampled = self.postprocessing(sampled)
-        print(f'sampled.shape: {sampled.shape}')
 
         return sampled, valid_mask
 
