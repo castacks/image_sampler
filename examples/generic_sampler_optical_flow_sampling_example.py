@@ -23,7 +23,7 @@ from scipy.spatial.transform import Rotation
 # Local imports.
 from ..generic_camera_model_sampler import GenericCameraModelSampler
 from ...mvs_utils.camera_models import DoubleSphere, ShapeStruct, Pinhole
-from visualization.visualization_utils import flow_tensor_to_image
+from .examples_utils.visualization_utils import flow_tensor_to_image
 
 ########################
 # Visualization flag.
@@ -134,7 +134,7 @@ def create_preprocessing_flow(camera_model_in, R_in_in_out):
 
 
 def create_postprocessing_flow(camera_model_out):
-    def postprocessing(Gout_f_rays):
+    def postprocessing(Gout_f_rays, valid_mask):
         ########################
         # 5. Project the warped pixel coord list to the output image as pixels.
         ########################
@@ -152,7 +152,7 @@ def create_postprocessing_flow(camera_model_out):
         Fout = Fout # * Gout_f_valid_mask # Shape is (2, N = H * W).
         Fout = Fout.view(1, 2, camera_model_out.ss.H, camera_model_out.ss.W) # Shape is (1, 2, H, W).
 
-        return Fout
+        return Fout, Gout_f_valid_mask
         
     return postprocessing
 
@@ -178,7 +178,7 @@ print(Fore.YELLOW + "Sampling..." + Style.RESET_ALL)
 print(Fore.GREEN + "    Input shape: {}".format(Fin.shape) + Style.RESET_ALL)
 
 # Show sampled. The input to the sampler is of shape (B, C, H, W).
-sampled = sampler(Fin)[0]
+sampled, valid_mask = sampler(Fin)
 print(Fore.GREEN + "    Output shape: {}".format(sampled.shape) + Style.RESET_ALL)
 
 if is_vis:

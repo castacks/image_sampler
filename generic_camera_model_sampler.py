@@ -61,7 +61,7 @@ class GenericCameraModelSampler(CameraModelRotation):
         sampled, valid_mask = super().__call__(img, interpolation, invalid_pixel_value)
 
         # Postprocess.
-        sampled = self.postprocessing(sampled)
+        sampled, valid_mask = self.postprocessing(sampled, valid_mask)
 
         return sampled, valid_mask
 
