@@ -6,9 +6,12 @@ from .camera_model_sampler import CameraModelRotation
 from .register import (SAMPLERS, register)
 from ..mvs_utils.ftensor import FTensor
 
+def identity(x):
+    return x
+
 @register(SAMPLERS)
 class GenericCameraModelSampler(CameraModelRotation):
-    def __init__(self, camera_model_raw, camera_model_target, R_output_in_input, preprocessing = lambda x: x, postprocessing = lambda x: x):
+    def __init__(self, camera_model_raw, camera_model_target, R_output_in_input, preprocessing = identity, postprocessing = identity):
         '''
         This is a wrapper class for the CameraModelRotation class.
         It generalizes the operation of the sampler to also take in a preprocessing function and a postprocessing function.
