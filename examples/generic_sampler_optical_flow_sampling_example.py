@@ -1,12 +1,7 @@
 """"
-TODO:
-    - Make sure unity resampling works.
-    - Get an optical flow npy file. This is of size (H, W, 2).
-    - Resample the optical flow using the sampling scheme.
-
-Notes:
-    - Camera model sampler should not be child of PlanarAsBase. 
-    - Camera model sampler should not expect any of the camera models to have fov_degree.
+Author: Yorai Shaoul
+Date: 2023-01-07
+Description: This is an example of how to use the GenericCameraModelSampler class to sample an optical flow image.
 """
 
 
