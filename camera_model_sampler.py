@@ -1,5 +1,6 @@
 
 import copy
+from colorama import Fore, Style
 import numpy as np
 
 import torch
@@ -7,7 +8,6 @@ import torch.nn.functional as F
 
 from .planar_as_base import ( PlanarAsBase, INTER_MAP )
 from .register import (SAMPLERS, register)
-
 from ..mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
@@ -88,7 +88,6 @@ class CameraModelRotation(PlanarAsBase):
         '''
         img could be an array or a list of arrays.
         '''
-        
         # Convert to torch Tensor with [N, C, H, W] shape.
         img, flag_uint8 = self.convert_input(img, self.device)
         
