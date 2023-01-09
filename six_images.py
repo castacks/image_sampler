@@ -34,6 +34,7 @@ class SixPlanarTorch(PlanarAsBase):
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model: A camera model for the fisheye camera.
+        R_raw_fisheye (torch.Tensor): The rotation matrix from the raw image cube to the fisheye camera coordinate system.
         '''
         super().__init__(
             fov, 
