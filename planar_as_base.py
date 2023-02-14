@@ -302,11 +302,17 @@ class NoOpSampler(PlanarAsBase):
         if interpolation == 'blend':
             return self.blend_interpolation(img, blend_func, invalid_pixel_value)
         
+        # Convert to torch Tensor with [N, C, H, W] shape.
+        img, flag_uint8 = self.convert_input(img, self.device)
+        
         # No op.
         self.check_input_shape(img.shape[-2:])
         return img, self.valid_mask.cpu().numpy().astype(bool)
 
     def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
+        # Convert to torch Tensor with [N, C, H, W] shape.
+        img, flag_uint8 = self.convert_input(img, self.device)
+        
         # No op.
         self.check_input_shape(img.shape[-2:])
         return img, self.valid_mask.cpu().numpy().astype(bool)
