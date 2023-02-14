@@ -138,7 +138,13 @@ class FullViewRotation(PlanarAsBase):
 
         return self.convert_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
     
-    def __call__(self, img, interpolation='linear'):
+    def __call__(self, img, interpolation='linear', blend_func=None):
+        if interpolation == 'blend':
+            if self.use_ocv:
+                return self.blend_interpolation_ocv(img, blend_func)
+            else:
+                return self.blend_interpolation_torch(img, blend_func)
+
         if self.use_ocv:
             return self.execute_using_ocv( img, interpolation )
         else:

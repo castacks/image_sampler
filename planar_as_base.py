@@ -282,3 +282,34 @@ class PlanarAsBase(object):
             acc_d = d + acc_d
             
         return acc_d / shifts.shape[0]
+
+class NoOpSampler(PlanarAsBase):
+    def __init__(self, camera_model, R_raw_fisheye):
+        super().__init__(camera_model.fov_degree, 
+                         camera_model, 
+                         R_raw_fisheye=R_raw_fisheye,
+                         cached_raw_shape=camera_model.shape)
+
+        self.valid_mask = torch.ones(self.camera_model.shape, dtype=torch.bool, device=self.device)
+
+    def check_input_shape(self, img_shape):
+        # Get the shape of the input image.
+        H, W = img_shape[:2]
+        ss = self.camera_model.ss
+        assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
+
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=127, blend_func=None):
+        if interpolation == 'blend':
+            return self.blend_interpolation(img, blend_func, invalid_pixel_value)
+        
+        # No op.
+        self.check_input_shape(img.shape[-2:])
+        return img, self.valid_mask.cpu().numpy().astype(bool)
+
+    def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
+        # No op.
+        self.check_input_shape(img.shape[-2:])
+        return img, self.valid_mask.cpu().numpy().astype(bool)
+
+    def compute_mean_samping_diff(self, support_shape):
+        raise NotImplementedError()

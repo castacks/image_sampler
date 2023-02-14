@@ -1,5 +1,5 @@
 
-from .planar_as_base import IDENTITY_ROT
+from .planar_as_base import IDENTITY_ROT, NoOpSampler
 from . import planar_as_base
 
 # Camera model based sampler.

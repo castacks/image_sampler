@@ -138,7 +138,8 @@ shape = {self.shape}
         
         self.grid = m
 
-    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127, 
+                 blend_func=None, debug_callback=dummy_debug_callback):
         '''
         Arguments:
         imgs (dict of arrays or list of dicts): The six images in the order of front, right, bottom, left, top, and back.
