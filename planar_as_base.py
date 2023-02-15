@@ -284,11 +284,12 @@ class PlanarAsBase(object):
         return acc_d / shifts.shape[0]
 
 class NoOpSampler(PlanarAsBase):
-    def __init__(self, camera_model, R_raw_fisheye):
+    def __init__(self, camera_model, R_raw_fisheye, convert_output=True):
         super().__init__(camera_model.fov_degree, 
                          camera_model, 
                          R_raw_fisheye=R_raw_fisheye,
-                         cached_raw_shape=camera_model.shape)
+                         cached_raw_shape=camera_model.shape,
+                         convert_output=convert_output)
 
         self.valid_mask = torch.ones(self.camera_model.shape, dtype=torch.bool, device=self.device)
 
@@ -307,7 +308,8 @@ class NoOpSampler(PlanarAsBase):
         
         # No op.
         self.check_input_shape(img.shape[-2:])
-        return img, self.valid_mask.cpu().numpy().astype(bool)
+        return self.convert_output(img, flag_uint8), \
+               self.valid_mask.cpu().numpy().astype(bool)
 
     def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
         # Convert to torch Tensor with [N, C, H, W] shape.
@@ -315,7 +317,8 @@ class NoOpSampler(PlanarAsBase):
         
         # No op.
         self.check_input_shape(img.shape[-2:])
-        return img, self.valid_mask.cpu().numpy().astype(bool)
+        return self.convert_output(img, flag_uint8), \
+               self.valid_mask.cpu().numpy().astype(bool)
 
     def compute_mean_samping_diff(self, support_shape):
         raise NotImplementedError()

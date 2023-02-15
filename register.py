@@ -4,6 +4,7 @@
 import copy
 
 SAMPLERS=dict()
+BLEND_FUNCTIONS=dict()
 
 def register(dst):
     '''Register a class to a dstination dictionary. '''

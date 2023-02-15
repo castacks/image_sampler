@@ -16,5 +16,8 @@ from .numba_support_check import is_numba_supported
 if is_numba_supported():
     from .six_images_py_numba import SixPlanarNumba
 
+# The blenders.
+from .blend_function import (BlendBy2ndOrderGradTorch, BlendBy2ndOrderGradOcv)
+
 # All samplers in a dict.
-from .register import (SAMPLERS, make_object)
+from .register import (SAMPLERS, BLEND_FUNCTIONS, make_object)

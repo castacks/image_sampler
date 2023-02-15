@@ -150,6 +150,13 @@ shape = {self.shape}
         The generated fisheye image. The image might be inside a list.
         '''
 
+        if interpolation == 'blend':
+            return self.blend_interpolation(
+                imgs,
+                blend_func=blend_func, 
+                invalid_pixel_value=invalid_pixel_value,
+                debug_callback=debug_callback)
+
         # Make the image cross.
         img_cross, flag_uint8, single_support_shape = \
             make_image_cross_torch( imgs, device=self.device )

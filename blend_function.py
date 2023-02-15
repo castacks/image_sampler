@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import kornia
 
+from .register import (BLEND_FUNCTIONS, register)
+
 class BlendBy2ndOrderGradient(object):
     def __init__(self, threshold_scaling_factor) -> None:
         super().__init__()
@@ -14,7 +16,8 @@ class BlendBy2ndOrderGradient(object):
     
     def __call__(self, img):
         return self.blend_func(img)
-    
+
+@register(BLEND_FUNCTIONS)    
 class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
     def __init__(self, threshold_scaling_factor) -> None:
         super().__init__(threshold_scaling_factor)
@@ -41,7 +44,8 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
         m = kornia.morphology.erosion(m, torch.ones((3, 3), device=s.device), border_type='geodesic', border_value=0.0)
         
         return m
-    
+
+@register(BLEND_FUNCTIONS)    
 class BlendBy2ndOrderGradOcv(object):
     def __init__(self, threshold_scaling_factor) -> None:
         super().__init__(threshold_scaling_factor)
