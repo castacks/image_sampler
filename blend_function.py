@@ -23,7 +23,7 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
     def get_default_init_args(cls):
         return dict(
             type=cls.__name__,
-            threshold_scaling_factor=0.02,
+            threshold_scaling_factor=0.01,
             )
     
     def __init__(self, threshold_scaling_factor) -> None:
@@ -58,7 +58,7 @@ class BlendBy2ndOrderGradOcv(object):
     def get_default_init_args(cls):
         return dict(
             type=cls.__name__,
-            threshold_scaling_factor=0.02,
+            threshold_scaling_factor=0.01,
             )
         
     def __init__(self, threshold_scaling_factor) -> None:

@@ -49,7 +49,7 @@ class CameraModelRotation(PlanarAsBase):
         self.camera_model_raw.device = self.device
 
         # Get the rays in xyz coordinates in the target camera image frame (CIF).
-        # The rays has been already transformed to the target image frame.
+        # The rays have been already transformed to the target image frame.
         xyz, valid_mask_target = self.get_xyz()
         if isinstance(xyz, FTensor):
             xyz = xyz.tensor()
