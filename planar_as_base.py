@@ -188,7 +188,7 @@ class PlanarAsBase(object):
         # xyz and valid_mask are torch.Tensor.
         # xyz = xyz.astype(np.float32)
         
-        xyz = FTensor(xyz, f0='fisheye', f1=None).to(dtype=torch.float32)
+        xyz = FTensor(xyz, f0=self.R_raw_fisheye.f1, f1=None).to(dtype=torch.float32)
         
         # Change of reference frame.
         xyz = self.R_raw_fisheye @ xyz

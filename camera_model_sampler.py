@@ -127,7 +127,7 @@ class CameraModelRotation(PlanarAsBase):
         sampled_linear = self.grid_sample( 
                             img, 
                             self.grid, 
-                            mode='linear', 
+                            mode='bilinear', 
                             padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
         
         sampled_nearest = self.grid_sample( 
