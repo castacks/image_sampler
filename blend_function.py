@@ -19,6 +19,13 @@ class BlendBy2ndOrderGradient(object):
 
 @register(BLEND_FUNCTIONS)    
 class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
+    @classmethod
+    def get_default_init_args(cls):
+        return dict(
+            type=cls.__name__,
+            threshold_scaling_factor=0.02,
+            )
+    
     def __init__(self, threshold_scaling_factor) -> None:
         super().__init__(threshold_scaling_factor)
         
@@ -47,6 +54,13 @@ class BlendBy2ndOrderGradTorch(BlendBy2ndOrderGradient):
 
 @register(BLEND_FUNCTIONS)    
 class BlendBy2ndOrderGradOcv(object):
+    @classmethod
+    def get_default_init_args(cls):
+        return dict(
+            type=cls.__name__,
+            threshold_scaling_factor=0.02,
+            )
+        
     def __init__(self, threshold_scaling_factor) -> None:
         super().__init__(threshold_scaling_factor)
         
