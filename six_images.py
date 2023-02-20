@@ -29,14 +29,14 @@ def dummy_debug_callback(blend_factor_ori, blend_factor_sampled):
 
 @register(SAMPLERS)
 class SixPlanarTorch(PlanarAsBase):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
+    def __init__(self, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model: A camera model for the fisheye camera.
         '''
         super().__init__(
-            fov, 
+            camera_model.fov_degree, 
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=cached_raw_shape,
@@ -92,9 +92,9 @@ class SixPlanarTorch(PlanarAsBase):
 
     def __repr__(self):
         s = f'''SixPlanarTorch
-fov = {self.fov}
-shape = {self.shape}
-'''
+            fov = {self.fov}
+            shape = {self.shape}
+            '''
         return s
 
     def create_grid(self):
@@ -138,7 +138,7 @@ shape = {self.shape}
         
         self.grid = m
 
-    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127):
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127, blenderFunc=None):
         '''
         Arguments:
         imgs (dict of arrays or list of dicts): The six images in the order of front, right, bottom, left, top, and back.
@@ -148,6 +148,11 @@ shape = {self.shape}
         Returns:
         The generated fisheye image. The image might be inside a list.
         '''
+
+        if interpolation == 'blended':
+            return self.blend_interpolation(imgs, 
+                                            blenderFunc,
+                                            invalid_pixel_value=invalid_pixel_value)
 
         # Make the image cross.
         img_cross, flag_uint8, single_support_shape = \
@@ -162,6 +167,7 @@ shape = {self.shape}
                                 self.grid.repeat((N, 1, 1, 1)), 
                                 mode=INTER_MAP[interpolation],
                                 padding_mode='border')
+
 
         # Apply gray color on invalid coordinates.
         invalid_mask = torch.logical_not(self.valid_mask)
