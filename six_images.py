@@ -15,7 +15,7 @@ import torch
 # import torch.nn.functional as F
 
 # Local package.
-from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP )
+from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP, INTER_BLENDED )
 from .register import (SAMPLERS, register)
 
 from .six_images_common import ( OFFSETS, make_image_cross_torch )
@@ -91,10 +91,9 @@ class SixPlanarTorch(PlanarAsBase):
         self.grid = self.grid.to(device=self.device)
 
     def __repr__(self):
-        s = f'''SixPlanarTorch
-            fov = {self.fov}
-            shape = {self.shape}
-            '''
+        s = ( f'SixPlanarTorch\n'
+              f'fov = {self.fov}\n'
+              f'shape = {self.shape}' )
         return s
 
     def create_grid(self):
@@ -138,7 +137,8 @@ class SixPlanarTorch(PlanarAsBase):
         
         self.grid = m
 
-    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127, blenderFunc=None):
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127, 
+                 blend_func=None, debug_callback=dummy_debug_callback):
         '''
         Arguments:
         imgs (dict of arrays or list of dicts): The six images in the order of front, right, bottom, left, top, and back.
@@ -149,10 +149,12 @@ class SixPlanarTorch(PlanarAsBase):
         The generated fisheye image. The image might be inside a list.
         '''
 
-        if interpolation == 'blended':
-            return self.blend_interpolation(imgs, 
-                                            blenderFunc,
-                                            invalid_pixel_value=invalid_pixel_value)
+        if interpolation == INTER_BLENDED:
+            return self.blend_interpolation(
+                imgs,
+                blend_func=blend_func, 
+                invalid_pixel_value=invalid_pixel_value,
+                debug_callback=debug_callback)
 
         # Make the image cross.
         img_cross, flag_uint8, single_support_shape = \
@@ -177,7 +179,7 @@ class SixPlanarTorch(PlanarAsBase):
         
         sampled[..., invalid_mask] = invalid_pixel_value
 
-        start_time = time.time()
+        # start_time = time.time()
         output_sampled = self.convert_output(sampled, flag_uint8)
         output_mask = self.valid_mask.cpu().numpy().astype(bool)
         # print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')

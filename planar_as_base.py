@@ -26,6 +26,8 @@ INTER_MAP = {
     'linear': 'bilinear',
 }
 
+INTER_BLENDED = 'blended'
+
 def to_torch(x, **kwargs):
     if not isinstance(x, torch.Tensor):
         return ocv_2_torch(x, **kwargs)
@@ -192,7 +194,7 @@ class PlanarAsBase(object):
         # xyz and valid_mask are torch.Tensor.
         # xyz = xyz.astype(np.float32)
         
-        xyz = FTensor(xyz, f0='fisheye', f1=None).to(dtype=torch.float32)
+        xyz = FTensor(xyz, f0=self.R_raw_fisheye.f1, f1=None).to(dtype=torch.float32)
         
         # Change of reference frame.
         xyz = self.R_raw_fisheye @ xyz
@@ -285,3 +287,49 @@ class PlanarAsBase(object):
             acc_d = d + acc_d
             
         return acc_d / shifts.shape[0]
+
+class NoOpSampler(PlanarAsBase):
+    def __init__(self, camera_model, R_raw_fisheye, convert_output=True):
+        super().__init__(camera_model.fov_degree, 
+                         camera_model, 
+                         R_raw_fisheye=R_raw_fisheye,
+                         cached_raw_shape=camera_model.shape,
+                         convert_output=convert_output)
+
+        self.valid_mask = torch.ones(self.camera_model.shape, dtype=torch.bool, device=self.device)
+
+    @PlanarAsBase.device.setter
+    def device(self, device):
+        PlanarAsBase.device.fset(self, device)
+        
+        self.valid_mask = self.valid_mask.to(device=self.device)
+
+    def check_input_shape(self, img_shape):
+        # Get the shape of the input image.
+        H, W = img_shape[:2]
+        ss = self.camera_model.ss
+        assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
+
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=127, blend_func=None):
+        if interpolation == INTER_BLENDED:
+            return self.blend_interpolation(img, blend_func, invalid_pixel_value)
+        
+        # Convert to torch Tensor with [N, C, H, W] shape.
+        img, flag_uint8 = self.convert_input(img, self.device)
+        
+        # No op.
+        self.check_input_shape(img.shape[-2:])
+        return self.convert_output(img, flag_uint8), \
+               self.valid_mask.cpu().numpy().astype(bool)
+
+    def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
+        # Convert to torch Tensor with [N, C, H, W] shape.
+        img, flag_uint8 = self.convert_input(img, self.device)
+        
+        # No op.
+        self.check_input_shape(img.shape[-2:])
+        return self.convert_output(img, flag_uint8), \
+               self.valid_mask.cpu().numpy().astype(bool)
+
+    def compute_mean_samping_diff(self, support_shape):
+        raise NotImplementedError()

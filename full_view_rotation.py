@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .planar_as_base import (INTER_MAP_OCV, INTER_MAP, PlanarAsBase)
+from .planar_as_base import (INTER_MAP_OCV, INTER_MAP, INTER_BLENDED, PlanarAsBase)
 from .register import (SAMPLERS, register)
 
 @register(SAMPLERS)
@@ -138,7 +138,13 @@ class FullViewRotation(PlanarAsBase):
 
         return self.convert_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
     
-    def __call__(self, img, interpolation='linear'):
+    def __call__(self, img, interpolation='linear', blend_func=None):
+        if interpolation == INTER_BLENDED:
+            if self.use_ocv:
+                return self.blend_interpolation_ocv(img, blend_func)
+            else:
+                return self.blend_interpolation_torch(img, blend_func)
+
         if self.use_ocv:
             return self.execute_using_ocv( img, interpolation )
         else:

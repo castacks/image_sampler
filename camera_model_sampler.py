@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .planar_as_base import ( PlanarAsBase, INTER_MAP )
+from .planar_as_base import ( PlanarAsBase, INTER_MAP, INTER_BLENDED )
 from .register import (SAMPLERS, register)
 from ..mvs_utils.ftensor import FTensor
 
@@ -49,7 +49,7 @@ class CameraModelRotation(PlanarAsBase):
         self.camera_model_raw.device = self.device
 
         # Get the rays in xyz coordinates in the target camera image frame (CIF).
-        # The rays has been already transformed to the target image frame.
+        # The rays have been already transformed to the target image frame.
         xyz, valid_mask_target = self.get_xyz()
         if isinstance(xyz, FTensor):
             xyz = xyz.tensor()
@@ -84,10 +84,17 @@ class CameraModelRotation(PlanarAsBase):
         ss = self.camera_model_raw.ss
         assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
 
-    def __call__(self, img, interpolation='linear', invalid_pixel_value=127):
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=127, blend_func=None):
         '''
         img could be an array or a list of arrays.
         '''
+        
+        if interpolation == INTER_BLENDED:
+            return self.blend_interpolation(
+                img,
+                blend_func=blend_func,
+                invalid_pixel_value=invalid_pixel_value )
+        
         # Convert to torch Tensor with [N, C, H, W] shape.
         img, flag_uint8 = self.convert_input(img, self.device)
         
@@ -120,7 +127,7 @@ class CameraModelRotation(PlanarAsBase):
         sampled_linear = self.grid_sample( 
                             img, 
                             self.grid, 
-                            mode='linear', 
+                            mode='bilinear', 
                             padding_mode=self.camera_model_raw.padding_mode_if_being_sampled )
         
         sampled_nearest = self.grid_sample( 
