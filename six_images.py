@@ -15,7 +15,7 @@ import torch
 # import torch.nn.functional as F
 
 # Local package.
-from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP )
+from .planar_as_base import ( PlanarAsBase, IDENTITY_ROT, INTER_MAP, INTER_BLENDED )
 from .register import (SAMPLERS, register)
 
 from .six_images_common import ( OFFSETS, make_image_cross_torch )
@@ -150,7 +150,7 @@ shape = {self.shape}
         The generated fisheye image. The image might be inside a list.
         '''
 
-        if interpolation == 'blend':
+        if interpolation == INTER_BLENDED:
             return self.blend_interpolation(
                 imgs,
                 blend_func=blend_func, 

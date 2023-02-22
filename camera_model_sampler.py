@@ -1,13 +1,13 @@
 
 import copy
+from colorama import Fore, Style
 import numpy as np
 
 import torch
 import torch.nn.functional as F
 
-from .planar_as_base import ( PlanarAsBase, INTER_MAP )
+from .planar_as_base import ( PlanarAsBase, INTER_MAP, INTER_BLENDED )
 from .register import (SAMPLERS, register)
-
 from ..mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
@@ -89,7 +89,7 @@ class CameraModelRotation(PlanarAsBase):
         img could be an array or a list of arrays.
         '''
         
-        if interpolation == 'blend':
+        if interpolation == INTER_BLENDED:
             return self.blend_interpolation(
                 img,
                 blend_func=blend_func,
