@@ -51,10 +51,10 @@ class SixPlanarNumba(PlanarAsBase):
         # Do nothing.
 
     def __repr__(self):
-        s = f'''SixPlanarNumba
-fov = {self.fov}
-shape = {self.shape}
-'''
+        s = ( f'SixPlanarTorch\n'
+              f'fov = {self.fov}\n'
+              f'shape = {self.shape}' )
+
         return s
 
     def update_remap_coordinates(self, support_shape):
