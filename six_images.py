@@ -29,14 +29,14 @@ def dummy_debug_callback(blend_factor_ori, blend_factor_sampled):
 
 @register(SAMPLERS)
 class SixPlanarTorch(PlanarAsBase):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
+    def __init__(self, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model: A camera model for the fisheye camera.
         '''
         super().__init__(
-            fov, 
+            camera_model.fov_degree, 
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=cached_raw_shape,
@@ -91,10 +91,9 @@ class SixPlanarTorch(PlanarAsBase):
         self.grid = self.grid.to(device=self.device)
 
     def __repr__(self):
-        s = f'''SixPlanarTorch
-fov = {self.fov}
-shape = {self.shape}
-'''
+        s = ( f'SixPlanarTorch\n'
+              f'fov = {self.fov}\n'
+              f'shape = {self.shape}' )
         return s
 
     def create_grid(self):

@@ -17,14 +17,14 @@ from .six_images_numba import ( sample_coor, sample_coor_cuda )
 
 @register(SAMPLERS)
 class SixPlanarNumba(PlanarAsBase):
-    def __init__(self, fov, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
+    def __init__(self, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
         camera_model: A camera model for the fisheye camera.
         '''
         super().__init__(
-            fov, 
+            camera_model.fov_degree, 
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=cached_raw_shape,
