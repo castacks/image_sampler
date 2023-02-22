@@ -298,6 +298,12 @@ class NoOpSampler(PlanarAsBase):
 
         self.valid_mask = torch.ones(self.camera_model.shape, dtype=torch.bool, device=self.device)
 
+    @PlanarAsBase.device.setter
+    def device(self, device):
+        PlanarAsBase.device.fset(self, device)
+        
+        self.valid_mask = self.valid_mask.to(device=self.device)
+
     def check_input_shape(self, img_shape):
         # Get the shape of the input image.
         H, W = img_shape[:2]
