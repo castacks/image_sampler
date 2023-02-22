@@ -170,6 +170,7 @@ class SixPlanarTorch(PlanarAsBase):
                                 mode=INTER_MAP[interpolation],
                                 padding_mode='border')
 
+
         # Apply gray color on invalid coordinates.
         invalid_mask = torch.logical_not(self.valid_mask)
         
@@ -178,7 +179,7 @@ class SixPlanarTorch(PlanarAsBase):
         
         sampled[..., invalid_mask] = invalid_pixel_value
 
-        start_time = time.time()
+        # start_time = time.time()
         output_sampled = self.convert_output(sampled, flag_uint8)
         output_mask = self.valid_mask.cpu().numpy().astype(bool)
         # print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
