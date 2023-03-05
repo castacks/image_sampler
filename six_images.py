@@ -174,8 +174,7 @@ shape = {self.shape}
 
         start_time = time.time()
         output_sampled = self.convert_output(sampled, flag_uint8)
-        output_mask = self.valid_mask.cpu().numpy().astype(bool)
-        # print(f'Transfer from GPU to CPU: {time.time() - start_time}s. ')
+        output_mask = self.valid_mask
         
         return output_sampled, output_mask
 

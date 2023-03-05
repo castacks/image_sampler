@@ -118,6 +118,8 @@ class FishAsBase():
         self.fish_camera_model.device = device
         self.Rs_pin_in_fish = self.Rs_pin_in_fish.to(device=device)
 
+        self.uv_of_xyz_ix = self.uv_of_xyz_ix.to(device=device)
+
 
     def mesh_grid_pixels(self, shape, dimensionless=False, flag_flatten=False):
         '''Get a mesh grid of the pixel coordinates. 
@@ -163,7 +165,7 @@ class FishAsBase():
         pixel_coor = torch.vstack( (xx, yy) ) # 2xN=H*W
         pixel_coor_uv = torch.vstack( (yy, xx) ) # 2xN=H*W
         # Remember the relationship between the xyz indices and the pixels those originated from.
-        self.uv_of_xyz_ix = pixel_coor_uv.repeat((self.P, 1 , 1))
+        self.uv_of_xyz_ix = pixel_coor_uv.repeat((self.P, 1 , 1), device=self.device)
         
         xyz, valid_mask = \
             self.pinx_camera_model.pixel_2_ray(pixel_coor) # Since this is a pinhole, all pixels that were projected out from the grid are expected to be valid. Assuming that the grid was the size of the size of the pinhole and that there were no evil bugs in the code.

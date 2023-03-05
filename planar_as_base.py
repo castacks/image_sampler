@@ -34,8 +34,12 @@ def to_torch(x, **kwargs):
         return x
     elif x.ndim == 3:
         return x.unsqueeze(0)
+
+    elif x.ndim == 2:
+        return x.unsqueeze(0).unsqueeze(0)
+
     else:
-        raise Exception(f'ndim must be 4 or 3 if x is Tensor. x.shape = {x.shape}.')
+        raise Exception(f'ndim must be 4 or 3 or 2 if x is Tensor. x.shape = {x.shape}.')
 
 def is_originated_from_uint8(x):
     if isinstance(x, torch.Tensor):
@@ -48,7 +52,6 @@ def input_2_torch(img, device):
     img can be a single image represented as a NumPy array, or it could
     be a collection of NumPy arrays, or it could already be a PyTorch Tensor.
     '''
-    
     if isinstance(img, (list, tuple)):
         flag_uint8 = is_originated_from_uint8(img[0])
         return torch.cat( [ to_torch(i, keep_dtype=False) for i in img ], dim=0 ).to(device=device), flag_uint8

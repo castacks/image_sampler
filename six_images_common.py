@@ -96,7 +96,7 @@ def make_image_cross_torch(imgs, device):
     # Batch mode.
     img_torch_front, flag_uint8 = input_2_torch(imgs[0][FRONT], device)
     _, C, H, W = img_torch_front.shape
-    N = len(imgs)
+    N = len(imgs) # This should be set from batch size, and then below each image should be indexed by i.
     
     canvas = torch.zeros( ( N, C, 3*H, 4*W ), dtype=img_torch_front.dtype, device=device )
 
