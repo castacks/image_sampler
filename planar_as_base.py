@@ -143,7 +143,7 @@ class PlanarAsBase(object):
         self.R_raw_fisheye = self.R_raw_fisheye.to(device=device)
 
     def input_invalid_value(self, x):
-        return x == self.default_invalid_value \
+        return self.default_invalid_value \
             if x is None \
             else x
 
