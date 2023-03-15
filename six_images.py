@@ -29,7 +29,12 @@ def dummy_debug_callback(blend_factor_ori, blend_factor_sampled):
 
 @register(SAMPLERS)
 class SixPlanarTorch(PlanarAsBase):
-    def __init__(self, camera_model, R_raw_fisheye=IDENTITY_ROT, cached_raw_shape=(640, 640), convert_output=True):
+    def __init__(self, 
+                 camera_model, 
+                 R_raw_fisheye=IDENTITY_ROT, 
+                 cached_raw_shape=(640, 640), 
+                 convert_output=True,
+                 default_invalid_value=0):
         '''
         Arguments:
         fov (float): Full FoV of the lens in degrees.
@@ -40,7 +45,8 @@ class SixPlanarTorch(PlanarAsBase):
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=cached_raw_shape,
-            convert_output=convert_output)
+            convert_output=convert_output,
+            default_invalid_value=default_invalid_value)
         
         # The 3D coordinates of the hyper-surface.
         self.xyz, self.valid_mask = self.get_xyz()
@@ -137,7 +143,7 @@ class SixPlanarTorch(PlanarAsBase):
         
         self.grid = m
 
-    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=127, 
+    def __call__(self, imgs, interpolation='linear', invalid_pixel_value=None, 
                  blend_func=None, debug_callback=dummy_debug_callback):
         '''
         Arguments:
@@ -155,6 +161,8 @@ class SixPlanarTorch(PlanarAsBase):
                 blend_func=blend_func, 
                 invalid_pixel_value=invalid_pixel_value,
                 debug_callback=debug_callback)
+
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
 
         # Make the image cross.
         img_cross, flag_uint8, single_support_shape = \
@@ -186,12 +194,15 @@ class SixPlanarTorch(PlanarAsBase):
         
         return output_sampled, output_mask
 
-    def blend_interpolation(self, imgs, blend_func, invalid_pixel_value=127, debug_callback=dummy_debug_callback):
+    def blend_interpolation(self, imgs, blend_func, invalid_pixel_value=None, 
+                            debug_callback=dummy_debug_callback):
         '''
         This function blends the results of linear interpolation and nearest neighbor interpolation. 
         The user is supposed to provide a callable object, blend_func, which takes in img and produces
         a blending factor. The blending factor is a float number between 0 and 1. 1 means only nearest.
         '''
+        
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
         
         # Make the image cross.
         img_cross, flag_uint8, single_support_shape = \

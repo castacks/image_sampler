@@ -9,7 +9,12 @@ from .register import (SAMPLERS, register)
 
 @register(SAMPLERS)
 class FullViewRotation(PlanarAsBase):
-    def __init__(self, camera_model, R_raw_fisheye, cached_raw_shape=(1024, 2048), convert_output=True):
+    def __init__(self, 
+                 camera_model, 
+                 R_raw_fisheye, 
+                 cached_raw_shape=(1024, 2048), 
+                 convert_output=True,
+                 default_invalid_value=0):
         '''
         Note: Full view is the Unreal Engine's setting. It is NOT the same as the conventional 
         equirectangular projection. In Unreal Engine, the forward direction (that is where the 
@@ -32,7 +37,8 @@ class FullViewRotation(PlanarAsBase):
             camera_model=camera_model, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=cached_raw_shape,
-            convert_output=convert_output)
+            convert_output=convert_output,
+            default_invalid_value=default_invalid_value)
         # import ipdb; ipdb.set_trace()
         # Get the longitude and latitude coordinates.
         self.lon_lat, invalid_mask = self.get_lon_lat()
@@ -76,8 +82,10 @@ class FullViewRotation(PlanarAsBase):
 
         return lon_lat, torch.logical_not( valid_mask )
 
-    def execute_using_ocv(self, img, interpolation='linear'):
+    def execute_using_ocv(self, img, interpolation='linear', invalid_pixel_value=None):
         global INTER_MAP_OCV
+        
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
         
         flag_input_is_list = isinstance(img, (list, tuple) )
         if not flag_input_is_list:
@@ -100,7 +108,7 @@ class FullViewRotation(PlanarAsBase):
                                 borderMode=cv2.BORDER_WRAP)
             
             # Handle the masked values.
-            sampled[self.ocv_invalid_mask, ...] = 0
+            sampled[self.ocv_invalid_mask, ...] = invalid_pixel_value
             
             outputs_sampled.append( sampled )
             outputs_mask.append( np.logical_not(self.ocv_invalid_mask) )
@@ -110,8 +118,10 @@ class FullViewRotation(PlanarAsBase):
         else:
             return outputs_sampled, outputs_mask
 
-    def execute_using_torch(self, img, interpolation='linear'):
+    def execute_using_torch(self, img, interpolation='linear', invalid_pixel_value=None):
         global INTER_MAP
+
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
 
         # Convert to torch.Tensor.
         t, flag_uint8 = self.convert_input(img, self.device)
@@ -133,24 +143,28 @@ class FullViewRotation(PlanarAsBase):
 
         # Handle invalid pixels.
         sampled = sampled.view((N*C, *self.shape))
-        sampled[:, self.invalid_mask] = 0
+        sampled[:, self.invalid_mask] = invalid_pixel_value
         sampled = sampled.view((N, C, *self.shape))
 
         return self.convert_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
     
-    def __call__(self, img, interpolation='linear', blend_func=None):
+    def __call__(self, img, interpolation='linear', blend_func=None, invalid_pixel_value=None):
         if interpolation == INTER_BLENDED:
-            if self.use_ocv:
-                return self.blend_interpolation_ocv(img, blend_func)
-            else:
-                return self.blend_interpolation_torch(img, blend_func)
+            # if self.use_ocv:
+            #     return self.blend_interpolation_ocv(img, blend_func, invalid_pixel_value)
+            # else:
+            #     return self.blend_interpolation_torch(img, blend_func, invalid_pixel_value)
+            
+            return self.blend_interpolation( img, blend_func, invalid_pixel_value )
 
         if self.use_ocv:
-            return self.execute_using_ocv( img, interpolation )
+            return self.execute_using_ocv( img, interpolation, invalid_pixel_value )
         else:
-            return self.execute_using_torch( img, interpolation )
+            return self.execute_using_torch( img, interpolation, invalid_pixel_value )
     
-    def blend_interpolation_ocv(self, img, blend_func):
+    def blend_interpolation_ocv(self, img, blend_func, invalid_pixel_value=None):
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
+        
         flag_input_is_list = isinstance(img, (list, tuple) )
         if not flag_input_is_list:
             img = [img]
@@ -189,7 +203,7 @@ class FullViewRotation(PlanarAsBase):
             sampled = f * sampled_nearest.astype(np.float32) + (1-f) * sampled_linear.astype(np.float32)
             
             # Handle the masked values.
-            sampled[self.ocv_invalid_mask, ...] = 0
+            sampled[self.ocv_invalid_mask, ...] = invalid_pixel_value
             
             outputs_sampled.append( sampled )
             outputs_mask.append( np.logical_not(self.ocv_invalid_mask) )
@@ -199,7 +213,9 @@ class FullViewRotation(PlanarAsBase):
         else:
             return outputs_sampled, outputs_mask
     
-    def blend_interpolation_torch(self, img, blend_func):
+    def blend_interpolation_torch(self, img, blend_func, invalid_pixel_value=None):
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
+        
         # Convert to torch.Tensor.
         t, flag_uint8 = self.convert_input(img, self.device)
 
@@ -233,12 +249,12 @@ class FullViewRotation(PlanarAsBase):
 
         # Handle invalid pixels.
         sampled = sampled.view((N*C, *self.shape))
-        sampled[:, self.invalid_mask] = 0
+        sampled[:, self.invalid_mask] = invalid_pixel_value
         sampled = sampled.view((N, C, *self.shape))
 
         return self.convert_output(sampled, flag_uint8), np.logical_not(self.invalid_mask.cpu().numpy().astype(bool))
     
-    def blend_interpolation(self, img, blend_func):
+    def blend_interpolation(self, img, blend_func, invalid_pixel_value=None):
         '''
         This function blends the results of linear interpolation and nearest neighbor interpolation. 
         The user is supposed to provide a callable object, blend_func, which takes in img and produces
@@ -247,9 +263,9 @@ class FullViewRotation(PlanarAsBase):
         blend_func needs to be able to handle the PyTorch version of img if self.use_ocv is False.
         '''
         if self.use_ocv:
-            return self.blend_interpolation_ocv( img, blend_func )
+            return self.blend_interpolation_ocv( img, blend_func, invalid_pixel_value )
         else:
-            return self.blend_interpolation_torch( img, blend_func )
+            return self.blend_interpolation_torch( img, blend_func, invalid_pixel_value )
         
 
     def compute_mean_samping_diff(self, support_shape):

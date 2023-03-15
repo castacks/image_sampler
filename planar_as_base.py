@@ -73,7 +73,8 @@ class PlanarAsBase(object):
                  camera_model, 
                  R_raw_fisheye=IDENTITY_ROT, 
                  cached_raw_shape=(1024, 2048),
-                 convert_output=True):
+                 convert_output=True,
+                 default_invalid_value=0):
         '''
         NOTE: If convert_output=False, then the output is a Tensor WITH the batch dimension.
         That is, the output is a 4D Tensor no matter whether the input is a single image
@@ -85,6 +86,7 @@ class PlanarAsBase(object):
         R_raw_fisheye (FTensor): The orientation of the fisheye camera.
         cached_raw_shape (two-element): The tentative shape of the support raw image. Use some positive values if not sure.
         convert_output (bool): True if the output needs to be converted to NumPy (OpenCV).
+        default_invalid_value (scalar): The default value for the invalid output pixels.
         '''
         # TODO: Fixe the naming of R_raw_fisheye. Target can be any kind of image.
         super(PlanarAsBase, self).__init__()
@@ -112,6 +114,8 @@ class PlanarAsBase(object):
             self.convert_output = torch_2_output
         else:
             self.convert_output = dummy_troch_2_output
+            
+        self.default_invalid_value = default_invalid_value
 
     def is_same_as_cached_shape(self, new_shape):
         return new_shape[0] == self.cached_raw_shape[0] and new_shape[1] == self.cached_raw_shape[1]
@@ -137,6 +141,11 @@ class PlanarAsBase(object):
         self._device = device
         self.camera_model.device = device
         self.R_raw_fisheye = self.R_raw_fisheye.to(device=device)
+
+    def input_invalid_value(self, x):
+        return x == self.default_invalid_value \
+            if x is None \
+            else x
 
     def mesh_grid_pixels(self, shape, dimensionless=False, flag_flatten=False):
         '''Get a mesh grid of the pixel coordinates. 
@@ -310,7 +319,9 @@ class NoOpSampler(PlanarAsBase):
         ss = self.camera_model.ss
         assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
 
-    def __call__(self, img, interpolation='linear', invalid_pixel_value=127, blend_func=None):
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=None, blend_func=None):
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
+        
         if interpolation == INTER_BLENDED:
             return self.blend_interpolation(img, blend_func, invalid_pixel_value)
         
@@ -322,7 +333,9 @@ class NoOpSampler(PlanarAsBase):
         return self.convert_output(img, flag_uint8), \
                self.valid_mask.cpu().numpy().astype(bool)
 
-    def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
+    def blend_interpolation(self, img, blend_func, invalid_pixel_value=None):
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
+        
         # Convert to torch Tensor with [N, C, H, W] shape.
         img, flag_uint8 = self.convert_input(img, self.device)
         

@@ -12,7 +12,12 @@ from ..mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
 class CameraModelRotation(PlanarAsBase):
-    def __init__(self, camera_model_raw, camera_model_target, R_raw_fisheye, convert_output=True):
+    def __init__(self, 
+                 camera_model_raw, 
+                 camera_model_target, 
+                 R_raw_fisheye, 
+                 convert_output=True,
+                 default_invalid_value=0):
         '''
         The raw image is a planer image that described by a camera model. 
         
@@ -43,7 +48,8 @@ class CameraModelRotation(PlanarAsBase):
             camera_model=camera_model_target, 
             R_raw_fisheye=R_raw_fisheye,
             cached_raw_shape=(1, 1),
-            convert_output=convert_output)
+            convert_output=convert_output,
+            default_invalid_value=default_invalid_value)
 
         self.camera_model_raw = copy.deepcopy(camera_model_raw)
         self.camera_model_raw.device = self.device
@@ -84,7 +90,7 @@ class CameraModelRotation(PlanarAsBase):
         ss = self.camera_model_raw.ss
         assert H == ss.H and W == ss.W, f'Wrong input image shape. Expect {ss}, got {img_shape[:2]}'
 
-    def __call__(self, img, interpolation='linear', invalid_pixel_value=127, blend_func=None):
+    def __call__(self, img, interpolation='linear', invalid_pixel_value=None, blend_func=None):
         '''
         img could be an array or a list of arrays.
         '''
@@ -94,6 +100,8 @@ class CameraModelRotation(PlanarAsBase):
                 img,
                 blend_func=blend_func,
                 invalid_pixel_value=invalid_pixel_value )
+        
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
         
         # Convert to torch Tensor with [N, C, H, W] shape.
         img, flag_uint8 = self.convert_input(img, self.device)
@@ -111,12 +119,14 @@ class CameraModelRotation(PlanarAsBase):
 
         return self.convert_output(sampled, flag_uint8), self.valid_mask_reshaped.cpu().numpy().astype(bool)
 
-    def blend_interpolation(self, img, blend_func, invalid_pixel_value=127):
+    def blend_interpolation(self, img, blend_func, invalid_pixel_value=None):
         '''
         This function blends the results of linear interpolation and nearest neighbor interpolation. 
         The user is supposed to provide a callable object, blend_func, which takes in img and produces
         a blending factor. The blending factor is a float number between 0 and 1. 1 means only nearest.
         '''
+        
+        invalid_pixel_value = self.input_invalid_value( invalid_pixel_value )
         
         # Convert to torch Tensor with [N, C, H, W] shape.
         img, flag_uint8 = self.convert_input(img, self.device)
