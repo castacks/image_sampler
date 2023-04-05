@@ -38,7 +38,7 @@ class SixPlanarNumba(PlanarAsBase):
         
         # Explicity set the device to 'cuda' for better speed during construction.
         # Specifically, the call to self.update_remap_coordinates().
-        self.device = 'cuda'
+        self.device = 'cpu'
         
         # The remap coordinates.
         self.mx = None

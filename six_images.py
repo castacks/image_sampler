@@ -7,7 +7,11 @@
 
 from .numba_support_check import ( is_numba_supported, get_arch )
 
-import cupy
+try:
+    import cupy
+except:
+    pass
+
 import math
 # import numpy as np
 import time
