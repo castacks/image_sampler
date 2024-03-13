@@ -9,10 +9,13 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+import sys
+
+sys.path.append('../mvs_utils')
 
 from .ocv_torch import ( ocv_2_torch, torch_2_ocv, TYPE_OCV_2_TORCH_MAP )
-from ..mvs_utils import torch_meshgrid
-from ..mvs_utils.ftensor import FTensor, f_eye
+from mvs_utils import torch_meshgrid
+from mvs_utils.ftensor import FTensor, f_eye
 
 IDENTITY_ROT = f_eye(3, f0='raw', f1='fisheye', rotation=True, dtype=torch.float32)
 

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from .planar_as_base import ( PlanarAsBase, INTER_MAP, INTER_BLENDED )
 from .register import (SAMPLERS, register)
-from ..mvs_utils.ftensor import FTensor
+from mvs_utils.ftensor import FTensor
 
 @register(SAMPLERS)
 class CameraModelRotation(PlanarAsBase):
