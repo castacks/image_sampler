@@ -6,7 +6,7 @@ from .camera_model_sampler import CameraModelRotation
 from .register import (SAMPLERS, register)
 from ..mvs_utils.ftensor import FTensor
 
-def identity(x):
+def identity(*x):
     return x
 
 @register(SAMPLERS)
